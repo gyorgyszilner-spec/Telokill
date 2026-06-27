@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Telokill Prototípus</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; color: white; }
+        
+        #game-stage { width: 100%; height: 100%; position: relative; display: flex; justify-content: center; align-items: center; }
+        #crosshair { position: absolute; width: 30px; height: 30px; border: 3px solid #0f0; border-radius: 50%; pointer-events: none; z-index: 10; }
+        #enemy { position: absolute; width: 100px; height: 100px; background: red; border: 3px solid white; display: none; z-index: 5; transition: background 0.1s; }
+        
+        #hud-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; pointer-events: none; z-index: 20; }
+        .hud-left { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; pointer-events: auto; }
+        
+        #radar { width: 140px; height: 140px; border: 2px solid #0f0; border-radius: 50%; position: relative; background: rgba(0,255,0,0.05); }
+        #radar-center { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #0f0; border-radius: 50%; transform: translate(-50%, -50%); }
+        #radar-blip { position: absolute; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); display: block; }
+        
+        .hud-right { flex: 1; display: flex; justify-content: flex-end; align-items: center; padding: 20px; pointer-events: auto; }
+        #shoot-btn { width: 160px; height: 160px; border-radius: 50%; background: #ff3333; border: 5px solid white; color: white; font-size: 26px; font-weight: bold; box-shadow: 0 0 20px rgba(255,0,0,0.5); }
+        #shoot-btn:active { background: #990000; transform: scale(0.95); }
+
+        #start-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        #start-btn { padding: 20px 40px; font-size: 22px; background: #0f0; color: black; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        
+        #motion-debug { font-size: 16px; color: #aaa; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+<!-- === 1. RÉSZ VÉGE === -->
+
+         <div id="start-overlay">
+        <h2 style="margin-bottom: 20px; text-align:center;">Telokill Prototípus</h2>
+        <button id="start-btn">JÁTÉK INDÍTÁSA & SZENZOROK</button>
+    </div>
+
+    <div id="game-stage">
+        <div id="crosshair"></div>
+        <div id="enemy"></div>
+        
+        <div id="hud-container">
+            <div class="hud-left">
+                <div id="radar">
+                    <div id="radar-center"></div>
+                    <div id="radar-blip"></div>
+                </div>
+                <div id="motion-debug">
+                    <p id="dbg-dodge">Kitérés: Várakozás...</p>
+                    <p id="dbg-duck">Státusz: Várakozás...</p>
+                    <p id="score-view">Találat: 0</p>
+                    <div id="log-box" style="font-size: 11px; color: #00ff00; background: rgba(0,0,0,0.7); padding: 5px; border: 1px solid #333; margin-top: 10px; max-height: 120px; overflow-y: auto;">
+                        <p id="l1">> Rendszer kész.</p>
+                        <p id="l2">> Vár a gombnyomásra...</p>
+                        <p id="l3"></p>
+                        <p id="l4"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="hud-right">
+                <button id="shoot-btn">LÖVÉS</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const enemyWorldPitch = 0;    
+        let currentOrientation = { alpha: 0, beta: 0 };
+        const SMOOTH_FACTOR = 0.15; 
+
+        let score = 0;
+        let isEnemyVisible = false;
+
+        const startOverlay = document.getElementById('start-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const enemyEl = document.getElementById('enemy');
+        const radarBlip = document.getElementById('radar-blip');
+        const shootBtn = document.getElementById('shoot-btn');
+        const scoreView = document.getElementById('score-view');
+        const dbgDodge = document.getElementById('dbg-dodge');
+        const dbgDuck = document.getElementById('dbg-duck');
+
+        // Segédfunkció a képernyőre íráshoz
+        function printLog(line, text) {
+            const el = document.getElementById('l' + line);
+            if (el) el.innerText = "> " + text;
+        }
+
+        startBtn.addEventListener('click', function() {
+            printLog(1, "Gomb megnyomva!");
+            startOverlay.style.display = 'none';
+            
+            printLog(2, "Szenzor API ellenőrzése...");
+            if (typeof DeviceOrientationEvent !== 'undefined') {
+                printLog(3, "DeviceOrientationEvent létezik.");
+                
+                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    printLog(4, "iOS típusú engedélykérés indul...");
+                    DeviceOrientationEvent.requestPermission()
+                        .then(permissionState => {
+                            printLog(4, "iOS válasz: " + permissionState);
+                            if (permissionState === 'granted') {
+                                initSensors();
+                            } else {
+                                alert("Szenzor tiltva! Engedélyezd a Safari beállításaiban!");
+                            }
+                        })
+                        .catch(error => {
+                            printLog(4, "iOS hiba: " + error);
+                            initSensors(); // Hiba esetén is megpróbáljuk hátha
+                        });
+                } else {
+                    printLog(4, "Standard/Android mód (nincs külön ablak).");
+                    initSensors();
+                }
+            } else {
+                printLog(3, "HIBA: A böngésző nem ismeri ezt a szenzort!");
+                initSensors();
+            }
+        });
+
+        function initSensors() {
+            printLog(1, "Szenzorok kötése folyamatban...");
+            
+            window.addEventListener('deviceorientation', function(event) {
+                if (event && event.alpha !== null) {
+                    currentOrientation.alpha = event.alpha;
+                    currentOrientation.beta = event.beta || 0;
+                    printLog(2, "Giroszkóp OK! Alpha: " + Math.round(event.alpha));
+                }
+            }, true);
+
+            window.addEventListener('devicemotion', function(event) {
+                const acc = event.accelerationIncludingGravity;
+                if (!acc) return;
+
+                if (acc.x > 3.5) { dbgDodge.innerText = "Kitérés: BALRA"; }
+                else if (acc.x < -3.5) { dbgDodge.innerText = "Kitérés: JOBBRA"; }
+                else { dbgDodge.innerText = "Kitérés: Közép"; }
+
+                if (acc.y > 14) { dbgDuck.innerText = "Státusz: GUGGOLÁS"; }
+                else { dbgDuck.innerText = "Státusz: Áll"; }
+            }, true);
+
+            printLog(3, "Játékciklus (Update) indítása...");
+            requestAnimationFrame(updateGame);
+        }
+// <!-- === 2. RÉSZ VÉGE === -->
+
+
+
+
+              let enemyAngle = 45; 
+        let targetAngleOffset = 0;
+        let smoothedAngleOffset = 0;
+        let loopCounter = 0;
+
+        function spawnNextEnemy() {
+            enemyAngle = Math.floor(Math.random() * 360);
+            isEnemyVisible = false;
+            enemyEl.style.display = 'none';
+        }
+
+        function updateGame() {
+            // Folyamatosan jelezzük a képernyőn, hogy a fő hurok fut és nem fagyott le semmi
+            loopCounter++;
+            if (loopCounter % 30 === 0) {
+                printLog(4, "Loop fut... (" + loopCounter + ")");
+            }
+
+            if (currentOrientation.alpha !== 0) {
+                targetAngleOffset = -currentOrientation.alpha;
+                
+                let angleDiff = targetAngleOffset - smoothedAngleOffset;
+                while (angleDiff < -180) angleDiff += 360;
+                while (angleDiff > 180) angleDiff -= 360;
+                smoothedAngleOffset += angleDiff * SMOOTH_FACTOR;
+            }
+
+            let deltaAzimuth = enemyAngle - smoothedAngleOffset;
+            while (deltaAzimuth < -180) deltaAzimuth += 360;
+            while (deltaAzimuth > 180) deltaAzimuth -= 360;
+
+            const radarMaxDeg = 180;
+            let radarX = (deltaAzimuth / radarMaxDeg) * 50; 
+            radarX = Math.max(-50, Math.min(50, radarX));
+
+            radarBlip.style.left = "calc(50% + " + radarX + "px)";
+            radarBlip.style.top = "50%";
+
+            const fovX = 45; 
+
+            if (Math.abs(deltaAzimuth) < fovX) {
+                isEnemyVisible = true;
+                enemyEl.style.display = 'block';
+
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+
+                let screenX = (screenWidth / 2) + (deltaAzimuth / fovX) * (screenWidth / 2);
+                let screenY = screenHeight / 2;
+
+                enemyEl.style.left = (screenX - 40) + "px";
+                enemyEl.style.top = (screenY - 40) + "px";
+            } else {
+                isEnemyVisible = false;
+                enemyEl.style.display = 'none';
+            }
+
+            requestAnimationFrame(updateGame);
+        }
+
+        shootBtn.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            triggerShoot();
+        });
+        shootBtn.addEventListener('click', function() {
+            if (!('ontouchstart' in window)) triggerShoot();
+        });
+
+        function triggerShoot() {
+            if (isEnemyVisible) {
+                const enemyRect = enemyEl.getBoundingClientRect();
+                const centerX = window.innerWidth / 2;
+                const enemyCenterX = enemyRect.left + 40;
+                
+                if (Math.abs(centerX - enemyCenterX) < 60) {
+                    score++;
+                    scoreView.innerText = "Találat: " + score;
+                    enemyEl.style.background = 'yellow';
+                    
+                    setTimeout(function() { 
+                        enemyEl.style.background = 'red';
+                        spawnNextEnemy();
+                    }, 150);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+// <!-- === 3. RÉSZ VÉGE === -->
+
+
