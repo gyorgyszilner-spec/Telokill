@@ -142,7 +142,7 @@
         }
 // <!-- === 2. RÉSZ VÉGE === -->
 
-        // Fő játékciklus (60 FPS)
+             // Fő játékciklus (60 FPS)
         function updateGame() {
             // Sima átmenet kiszámítása (LERP) a 0-360 fokos átfordulás kezelésével
             let diffAlpha = currentOrientation.alpha - smoothedOrientation.alpha;
@@ -150,43 +150,40 @@
             if (diffAlpha < -180) diffAlpha += 360;
             
             smoothedOrientation.alpha += diffAlpha * SMOOTH_FACTOR;
-            smoothedOrientation.beta += (currentOrientation.beta - smoothedOrientation.beta) * SMOOTH_FACTOR;
 
             // Vízszintes eltérés (Azimuth): Teljes 360 fokos valós tér lefedése
             let deltaAzimuth = enemyWorldAzimuth - (360 - smoothedOrientation.alpha);
             if (deltaAzimuth > 180) deltaAzimuth -= 360;
             if (deltaAzimuth < -180) deltaAzimuth += 360;
 
-            // Függőleges eltérés (Pitch): 90 fokos korrekció az arc előtti tartáshoz (90 fok = tiszta horizont)
-            let deltaPitch = enemyWorldPitch - (smoothedOrientation.beta - 90); 
+            // Függőleges eltérés KIYIKTATVA (Fixen a horizont közepén van a célpont)
+            let deltaPitch = 0; 
 
             // --- RADAR FRISSÍTÉSE ---
-            // A radar széle mostantól a tiszta 180 fokos hátrafordulást jelenti (max skála)
+            // A radar széle a tiszta 180 fokos hátrafordulást jelenti
             const radarMaxDeg = 180;
             let radarX = (deltaAzimuth / radarMaxDeg) * 50; 
-            let radarY = -(deltaPitch / radarMaxDeg) * 50;
+            let radarY = 0; // Fixen a radar középvonalában marad a pötty fel-le irányban
 
             radarX = Math.max(-50, Math.min(50, radarX));
-            radarY = Math.max(-50, Math.min(50, radarY));
 
             radarBlip.style.left = `calc(50% + ${radarX}px)`;
             radarBlip.style.top = `calc(50% + ${radarY}px)`;
 
-            // --- ELLENSÉG MEGJELENÍTÉSE (VALÓS 90 FOKOS LÁTÓMEZŐ) ---
-            // Vízszintesen 90 fokos (balra 45, jobbra 45), függőlegesen 90 fokos (fel 45, le 45) tartomány
+            // --- ELLENSÉG MEGJELENÍTÉSE (VALÓS 90 FOKOS VÍZSZINTES LÁTÓMEZŐ) ---
+            // Vízszintesen 90 fokos (balra 45, jobbra 45) tartományban jelenik meg a képernyőn
             const fovX = 45; 
-            const fovY = 45; 
 
-            if (Math.abs(deltaAzimuth) < fovX && Math.abs(deltaPitch) < fovY) {
+            if (Math.abs(deltaAzimuth) < fovX) {
                 isEnemyVisible = true;
                 enemyEl.style.display = 'block';
 
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
 
-                // Lineáris leképezés a képernyő pixeljeire a kért fizikai fokok alapján
+                // Lineáris leképezés a képernyő pixeljeire (a magasság fixen a képernyő közepe)
                 let screenX = (screenWidth / 2) + (deltaAzimuth / fovX) * (screenWidth / 2);
-                let screenY = (screenHeight / 2) - (deltaPitch / fovY) * (screenHeight / 2);
+                let screenY = screenHeight / 2;
 
                 enemyEl.style.left = `${screenX - 40}px`;
                 enemyEl.style.top = `${screenY - 40}px`;
@@ -217,7 +214,7 @@
                 const enemyCenterY = enemyRect.top + 40;
                 const distance = Math.hypot(centerX - enemyCenterX, centerY - enemyCenterY);
 
-                if (distance < 60) { // Megnövelt találati sugár a dinamikusabb mozgáshoz
+                if (distance < 60) { // Találati sugár ellenőrzése
                     score++;
                     scoreView.innerText = `Találat: ${score}`;
                     enemyEl.style.background = 'yellow';
