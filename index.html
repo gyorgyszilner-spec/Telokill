@@ -3,48 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Szenzoros Teszt Játék</title>
+    <title>Telokill Prototípus</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; color: white; }
         
-        /* Fő játéktér (3D nézet szimuláció) */
         #game-stage { width: 100%; height: 100%; position: relative; display: flex; justify-content: center; align-items: center; }
+        #crosshair { position: absolute; width: 30px; height: 30px; border: 3px solid #0f0; border-radius: 50%; pointer-events: none; z-index: 10; }
+        #enemy { position: absolute; width: 100px; height: 100px; background: red; border: 3px solid white; display: none; z-index: 5; transition: background 0.1s; }
         
-        /* Célkereszt a képernyő közepén */
-        #crosshair { position: absolute; width: 20px; height: 20px; border: 2px solid #0f0; border-radius: 50%; pointer-events: none; z-index: 10; }
-        
-        /* Ellenség (Sima négyzet) */
-        #enemy { position: absolute; width: 80px; height: 80px; background: red; border: 3px solid white; display: none; z-index: 5; transition: background 0.1s; }
-        
-        /* UI Elrendezés: Kétoldali felosztás */
         #hud-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; pointer-events: none; z-index: 20; }
-        
-        /* Bal oldal: Radar és infók */
         .hud-left { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; pointer-events: auto; }
-        #radar { width: 120px; height: 120px; border: 2px solid #0f0; border-radius: 50%; position: relative; background: rgba(0,255,0,0.05); }
-        #radar-center { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background: #0f0; border-radius: 50%; transform: translate(-50%, -50%); }
-        #radar-blip { position: absolute; width: 8px; height: 8px; background: red; border-radius: 50%; transform: translate(-50%, -50%); display: block; }
         
-        /* Jobb oldal: Hatalmas lövés gomb */
+        #radar { width: 140px; height: 140px; border: 2px solid #0f0; border-radius: 50%; position: relative; background: rgba(0,255,0,0.05); }
+        #radar-center { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #0f0; border-radius: 50%; transform: translate(-50%, -50%); }
+        #radar-blip { position: absolute; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); display: block; }
+        
         .hud-right { flex: 1; display: flex; justify-content: flex-end; align-items: center; padding: 20px; pointer-events: auto; }
-        #shoot-btn { width: 150px; height: 150px; border-radius: 50%; background: #ff3333; border: 5px solid white; color: white; font-size: 24px; font-weight: bold; box-shadow: 0 0 20px rgba(255,0,0,0.5); }
+        #shoot-btn { width: 160px; height: 160px; border-radius: 50%; background: #ff3333; border: 5px solid white; color: white; font-size: 26px; font-weight: bold; box-shadow: 0 0 20px rgba(255,0,0,0.5); }
         #shoot-btn:active { background: #990000; transform: scale(0.95); }
 
-        /* Engedélykérő ablak az indításhoz */
         #start-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
         #start-btn { padding: 20px 40px; font-size: 22px; background: #0f0; color: black; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
         
-        /* Mozgás visszajelzők (Kitérés/Guggolás teszthez) */
-        #motion-debug { font-size: 14px; color: #aaa; }
-        .action-active { color: #0f0 !important; font-weight: bold; }
+        #motion-debug { font-size: 16px; color: #aaa; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
 <!-- === 1. RÉSZ VÉGE === -->
 
     <div id="start-overlay">
-        <h2 style="margin-bottom: 20px; text-align:center;">Szenzoros Játék Prototípus</h2>
+        <h2 style="margin-bottom: 20px; text-align:center;">Telokill Prototípus</h2>
         <button id="start-btn">JÁTÉK INDÍTÁSA & SZENZOROK</button>
     </div>
 
@@ -59,9 +48,8 @@
                     <div id="radar-blip"></div>
                 </div>
                 <div id="motion-debug">
-                    <p id="dbg-dodge">Kitérés: Közép</p>
-                    <p id="dbg-duck">Státusz: Áll</p>
                     <p id="score-view">Találat: 0</p>
+                    <p id="angle-view">Cél szöge: 0°</p>
                 </div>
             </div>
             <div class="hud-right">
@@ -71,13 +59,12 @@
     </div>
 
     <script>
-        // Virtuális térbeli koordináták fokban mérve
-        const enemyWorldAzimuth = 45;  // 45 fokra északról (vízszintes irány)
-        const enemyWorldPitch = 10;    // 10 fokkal a horizont felett (függőleges irány)
+        // Az ellenség fix helye fokban (0 - 360 fok között körülötted)
+        let enemyAngle = Math.random() * 360; 
 
-        let currentOrientation = { alpha: 0, beta: 0 };
-        let smoothedOrientation = { alpha: 0, beta: 0 };
-        const SMOOTH_FACTOR = 0.15; // Szűrés (0.01 = lassú/sima, 1 = rángató)
+        let currentYaw = 0;
+        let smoothedYaw = 0;
+        const SMOOTH_FACTOR = 0.2; // Sima fordulás mértéke
 
         let score = 0;
         let isEnemyVisible = false;
@@ -88,53 +75,29 @@
         const radarBlip = document.getElementById('radar-blip');
         const shootBtn = document.getElementById('shoot-btn');
         const scoreView = document.getElementById('score-view');
-        const dbgDodge = document.getElementById('dbg-dodge');
-        const dbgDuck = document.getElementById('dbg-duck');
+        const angleView = document.getElementById('angle-view');
 
         startBtn.addEventListener('click', async () => {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
                     const permission = await DeviceOrientationEvent.requestPermission();
                     if (permission === 'granted') { initSensors(); }
-                } catch (e) { alert("Hiba az engedélykérés során: " + e); }
+                } catch (e) { alert("Hiba: " + e); }
             } else { initSensors(); }
             startOverlay.style.display = 'none';
             if (navigator.wakeLock) { navigator.wakeLock.request('screen').catch(()=>{}); }
         });
 
         function initSensors() {
-            // CÉLZÁS (Giroszkóp)
             window.addEventListener('deviceorientation', (event) => {
-                if (event.alpha !== null && event.beta !== null) {
-                    currentOrientation.alpha = event.alpha;
-                    currentOrientation.beta = event.beta;
+                // Fekvő (Landscape) módban az alpha és béta kombinációja adja meg a tiszta vízszintes forgást.
+                // Ez a matematikai korrekció biztosítja, hogy ha körbeforogsz a szobában, a Yaw 0-360 fok között fusson.
+                let heading = event.alpha;
+                if (event.beta < 0) {
+                    heading = (heading + 180) % 360;
                 }
-            });
-
-            // KITÉRÉS ÉS GUGGOLÁS (Gyorsulásmérő)
-            window.addEventListener('devicemotion', (event) => {
-                const acc = event.accelerationIncludingGravity;
-                if (!acc) return;
-
-                // Kitérés detektálás (X tengely)
-                if (acc.x > 3.5) {
-                    dbgDodge.innerText = "Kitérés: BALRA";
-                    dbgDodge.className = "action-active";
-                } else if (acc.x < -3.5) {
-                    dbgDodge.innerText = "Kitérés: JOBBRA";
-                    dbgDodge.className = "action-active";
-                } else {
-                    dbgDodge.innerText = "Kitérés: Közép";
-                    dbgDodge.className = "";
-                }
-
-                // Guggolás detektálás (Y tengely hirtelen megugrása)
-                if (acc.y > 14) {
-                    dbgDuck.innerText = "Státusz: GUGGOLÁS";
-                    dbgDuck.className = "action-active";
-                } else {
-                    dbgDuck.innerText = "Státusz: Áll";
-                    dbgDuck.className = "";
+                if (heading !== null) {
+                    currentYaw = heading; 
                 }
             });
 
@@ -142,51 +105,51 @@
         }
 // <!-- === 2. RÉSZ VÉGE === -->
 
-             // Fő játékciklus (60 FPS)
+        // Fő játékciklus (60 FPS)
         function updateGame() {
             // Sima átmenet kiszámítása (LERP) a 0-360 fokos átfordulás kezelésével
-            let diffAlpha = currentOrientation.alpha - smoothedOrientation.alpha;
-            if (diffAlpha > 180) diffAlpha -= 360;
-            if (diffAlpha < -180) diffAlpha += 360;
+            let diff = currentYaw - smoothedYaw;
+            if (diff > 180) diff -= 360;
+            if (diff < -180) diff += 360;
             
-            smoothedOrientation.alpha += diffAlpha * SMOOTH_FACTOR;
+            smoothedYaw += diff * SMOOTH_FACTOR;
+            if (smoothedYaw < 0) smoothedYaw += 360;
+            if (smoothedYaw >= 360) smoothedYaw -= 360;
 
-            // Vízszintes eltérés (Azimuth): Teljes 360 fokos valós tér lefedése
-            let deltaAzimuth = enemyWorldAzimuth - (360 - smoothedOrientation.alpha);
-            if (deltaAzimuth > 180) deltaAzimuth -= 360;
-            if (deltaAzimuth < -180) deltaAzimuth += 360;
+            // Relatív szög kiszámítása az ellenség és a játékos nézési iránya között
+            let deltaAngle = enemyAngle - smoothedYaw;
+            if (deltaAngle > 180) deltaAngle -= 360;
+            if (deltaAngle < -180) deltaAngle += 360;
 
-            // Függőleges eltérés KIYIKTATVA (Fixen a horizont közepén van a célpont)
-            let deltaPitch = 0; 
+            // Debug információ kiírása
+            angleView.innerText = `Cél eltérés: ${Math.round(deltaAngle)}°`;
 
-            // --- RADAR FRISSÍTÉSE ---
-            // A radar széle a tiszta 180 fokos hátrafordulást jelenti
-            const radarMaxDeg = 180;
-            let radarX = (deltaAzimuth / radarMaxDeg) * 50; 
-            let radarY = 0; // Fixen a radar középvonalában marad a pötty fel-le irányban
-
-            radarX = Math.max(-50, Math.min(50, radarX));
+            // --- 1. RADAR FRISSÍTÉSE (360 FOKOS LEKÉPEZÉS) ---
+            // A radar egy 2D felülnézeti térkép. Sugara 60px.
+            // Kiszámoljuk a pötty helyét a körben a relatív szög alapján (Szinusz/Koszinitusz)
+            let rad = (deltaAngle * Math.PI) / 180;
+            let radarX = Math.sin(rad) * 55;
+            let radarY = -Math.cos(rad) * 55; // Negatív, mert a képernyőn a fenti irány a mínusz Y
 
             radarBlip.style.left = `calc(50% + ${radarX}px)`;
             radarBlip.style.top = `calc(50% + ${radarY}px)`;
 
-            // --- ELLENSÉG MEGJELENÍTÉSE (VALÓS 90 FOKOS VÍZSZINTES LÁTÓMEZŐ) ---
-            // Vízszintesen 90 fokos (balra 45, jobbra 45) tartományban jelenik meg a képernyőn
-            const fovX = 45; 
-
-            if (Math.abs(deltaAzimuth) < fovX) {
+            // --- 2. ELLENSÉG MEGJELENÍTÉSE (60 FOKOS LÁTÓMEZŐ) ---
+            // Ha az ellenség a játékos előtt van max 30 fokkal balra vagy jobbra, akkor beúszik a képernyőre
+            const fov = 30; 
+            if (Math.abs(deltaAngle) < fov) {
                 isEnemyVisible = true;
                 enemyEl.style.display = 'block';
 
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
 
-                // Lineáris leképezés a képernyő pixeljeire (a magasság fixen a képernyő közepe)
-                let screenX = (screenWidth / 2) + (deltaAzimuth / fovX) * (screenWidth / 2);
+                // Vízszintes pozicionálás a képernyőn, a magasság fixen a középvonal
+                let screenX = (screenWidth / 2) + (deltaAngle / fov) * (screenWidth / 2);
                 let screenY = screenHeight / 2;
 
-                enemyEl.style.left = `${screenX - 40}px`;
-                enemyEl.style.top = `${screenY - 40}px`;
+                enemyEl.style.left = `${screenX - 50}px`;
+                enemyEl.style.top = `${screenY - 50}px`;
             } else {
                 isEnemyVisible = false;
                 enemyEl.style.display = 'none';
@@ -195,7 +158,7 @@
             requestAnimationFrame(updateGame);
         }
 
-        // LÖVÉS MECHANIKA
+        // LÖVÉS ÉS ÚJRAGENERÁLÁS MECHANIKA
         shootBtn.addEventListener('touchstart', (e) => {
             e.preventDefault();
             triggerShoot();
@@ -205,20 +168,27 @@
         });
 
         function triggerShoot() {
+            // Találat, ha az ellenség látható és a célkereszt (középpont) közelében van
             if (isEnemyVisible) {
                 const enemyRect = enemyEl.getBoundingClientRect();
                 const centerX = window.innerWidth / 2;
-                const centerY = window.innerHeight / 2;
-                
-                const enemyCenterX = enemyRect.left + 40;
-                const enemyCenterY = enemyRect.top + 40;
-                const distance = Math.hypot(centerX - enemyCenterX, centerY - enemyCenterY);
+                const enemyCenterX = enemyRect.left + 50;
 
-                if (distance < 60) { // Találati sugár ellenőrzése
+                // Ha a kocka közepe közel van a képernyő közepéhez
+                if (Math.abs(centerX - enemyCenterX) < 60) { 
                     score++;
                     scoreView.innerText = `Találat: ${score}`;
+                    
+                    // Visszajelzés: sárga villanás
                     enemyEl.style.background = 'yellow';
-                    setTimeout(() => { enemyEl.style.background = 'red'; }, 150);
+                    
+                    // ÚJ ELLENSÉG GENERÁLÁSA: a kocka elugrik egy teljesen új véletlenszerű szögbe
+                    setTimeout(() => { 
+                        enemyAngle = Math.random() * 360; 
+                        enemyEl.style.background = 'red';
+                        enemyEl.style.display = 'none';
+                        isEnemyVisible = false;
+                    }, 200);
                 }
             }
         }
@@ -226,4 +196,3 @@
 </body>
 </html>
 // <!-- === 3. RÉSZ VÉGE === -->
-
