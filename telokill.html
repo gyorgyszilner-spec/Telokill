@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Szenzoros Teszt Játék</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; color: white; }
+        
+        /* Fő játéktér (3D nézet szimuláció) */
+        #game-stage { width: 100%; height: 100%; position: relative; display: flex; justify-content: center; align-items: center; }
+        
+        /* Célkereszt a képernyő közepén */
+        #crosshair { position: absolute; width: 20px; height: 20px; border: 2px solid #0f0; border-radius: 50%; pointer-events: none; z-index: 10; }
+        
+        /* Ellenség (Sima négyzet) */
+        #enemy { position: absolute; width: 80px; height: 80px; background: red; border: 3px solid white; display: none; z-index: 5; transition: background 0.1s; }
+        
+        /* UI Elrendezés: Kétoldali felosztás */
+        #hud-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; pointer-events: none; z-index: 20; }
+        
+        /* Bal oldal: Radar és infók */
+        .hud-left { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; pointer-events: auto; }
+        #radar { width: 120px; height: 120px; border: 2px solid #0f0; border-radius: 50%; position: relative; background: rgba(0,255,0,0.05); }
+        #radar-center { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background: #0f0; border-radius: 50%; transform: translate(-50%, -50%); }
+        #radar-blip { position: absolute; width: 8px; height: 8px; background: red; border-radius: 50%; transform: translate(-50%, -50%); display: block; }
+        
+        /* Jobb oldal: Hatalmas lövés gomb */
+        .hud-right { flex: 1; display: flex; justify-content: flex-end; align-items: center; padding: 20px; pointer-events: auto; }
+        #shoot-btn { width: 150px; height: 150px; border-radius: 50%; background: #ff3333; border: 5px solid white; color: white; font-size: 24px; font-weight: bold; box-shadow: 0 0 20px rgba(255,0,0,0.5); }
+        #shoot-btn:active { background: #990000; transform: scale(0.95); }
+
+        /* Engedélykérő ablak az indításhoz */
+        #start-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        #start-btn { padding: 20px 40px; font-size: 22px; background: #0f0; color: black; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        
+        /* Mozgás visszajelzők (Kitérés/Guggolás teszthez) */
+        #motion-debug { font-size: 14px; color: #aaa; }
+        .action-active { color: #0f0 !important; font-weight: bold; }
+    </style>
+</head>
+<body>
+<!-- === 1. RÉSZ VÉGE === -->
+
+    <div id="start-overlay">
+        <h2 style="margin-bottom: 20px; text-align:center;">Szenzoros Játék Prototípus</h2>
+        <button id="start-btn">JÁTÉK INDÍTÁSA & SZENZOROK</button>
+    </div>
+
+    <div id="game-stage">
+        <div id="crosshair"></div>
+        <div id="enemy"></div>
+        
+        <div id="hud-container">
+            <div class="hud-left">
+                <div id="radar">
+                    <div id="radar-center"></div>
+                    <div id="radar-blip"></div>
+                </div>
+                <div id="motion-debug">
+                    <p id="dbg-dodge">Kitérés: Közép</p>
+                    <p id="dbg-duck">Státusz: Áll</p>
+                    <p id="score-view">Találat: 0</p>
+                </div>
+            </div>
+            <div class="hud-right">
+                <button id="shoot-btn">LÖVÉS</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Virtuális térbeli koordináták fokban mérve
+        const enemyWorldAzimuth = 45;  // 45 fokra északról (vízszintes irány)
+        const enemyWorldPitch = 10;    // 10 fokkal a horizont felett (függőleges irány)
+
+        let currentOrientation = { alpha: 0, beta: 0 };
+        let smoothedOrientation = { alpha: 0, beta: 0 };
+        const SMOOTH_FACTOR = 0.15; // Szűrés (0.01 = lassú/sima, 1 = rángató)
+
+        let score = 0;
+        let isEnemyVisible = false;
+
+        const startOverlay = document.getElementById('start-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const enemyEl = document.getElementById('enemy');
+        const radarBlip = document.getElementById('radar-blip');
+        const shootBtn = document.getElementById('shoot-btn');
+        const scoreView = document.getElementById('score-view');
+        const dbgDodge = document.getElementById('dbg-dodge');
+        const dbgDuck = document.getElementById('dbg-duck');
+
+        startBtn.addEventListener('click', async () => {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission === 'granted') { initSensors(); }
+                } catch (e) { alert("Hiba az engedélykérés során: " + e); }
+            } else { initSensors(); }
+            startOverlay.style.display = 'none';
+            if (navigator.wakeLock) { navigator.wakeLock.request('screen').catch(()=>{}); }
+        });
+
+        function initSensors() {
+            // CÉLZÁS (Giroszkóp)
+            window.addEventListener('deviceorientation', (event) => {
+                if (event.alpha !== null && event.beta !== null) {
+                    currentOrientation.alpha = event.alpha;
+                    currentOrientation.beta = event.beta;
+                }
+            });
+
+            // KITÉRÉS ÉS GUGGOLÁS (Gyorsulásmérő)
+            window.addEventListener('devicemotion', (event) => {
+                const acc = event.accelerationIncludingGravity;
+                if (!acc) return;
+
+                // Kitérés detektálás (X tengely)
+                if (acc.x > 3.5) {
+                    dbgDodge.innerText = "Kitérés: BALRA";
+                    dbgDodge.className = "action-active";
+                } else if (acc.x < -3.5) {
+                    dbgDodge.innerText = "Kitérés: JOBBRA";
+                    dbgDodge.className = "action-active";
+                } else {
+                    dbgDodge.innerText = "Kitérés: Közép";
+                    dbgDodge.className = "";
+                }
+
+                // Guggolás detektálás (Y tengely hirtelen megugrása)
+                if (acc.y > 14) {
+                    dbgDuck.innerText = "Státusz: GUGGOLÁS";
+                    dbgDuck.className = "action-active";
+                } else {
+                    dbgDuck.innerText = "Státusz: Áll";
+                    dbgDuck.className = "";
+                }
+            });
+
+            requestAnimationFrame(updateGame);
+        }
+// <!-- === 2. RÉSZ VÉGE === -->
+
+        // Fő játékciklus (60 FPS)
+        function updateGame() {
+            // Sima átmenet kiszámítása (LERP) a 0-360 fokos átfordulás kezelésével
+            let diffAlpha = currentOrientation.alpha - smoothedOrientation.alpha;
+            if (diffAlpha > 180) diffAlpha -= 360;
+            if (diffAlpha < -180) diffAlpha += 360;
+            
+            smoothedOrientation.alpha += diffAlpha * SMOOTH_FACTOR;
+            smoothedOrientation.beta += (currentOrientation.beta - smoothedOrientation.beta) * SMOOTH_FACTOR;
+
+            // Relatív szögek a célponthoz kistámítása
+            let deltaAzimuth = enemyWorldAzimuth - (360 - smoothedOrientation.alpha);
+            if (deltaAzimuth > 180) deltaAzimuth -= 360;
+            if (deltaAzimuth < -180) deltaAzimuth += 360;
+
+            let deltaPitch = enemyWorldPitch - (smoothedOrientation.beta - 90); // 90 fokos korrekció az arc előtti tartáshoz
+
+            // --- RADAR FRISSÍTÉSE ---
+            const radarMaxDeg = 90;
+            let radarX = (deltaAzimuth / radarMaxDeg) * 50; 
+            let radarY = -(deltaPitch / radarMaxDeg) * 50;
+
+            radarX = Math.max(-50, Math.min(50, radarX));
+            radarY = Math.max(-50, Math.min(50, radarY));
+
+            radarBlip.style.left = `calc(50% + ${radarX}px)`;
+            radarBlip.style.top = `calc(50% + ${radarY}px)`;
+
+            // --- ELLENSÉG MEGJELENÍTÉSE (FOV: 30 FOK) ---
+            const fov = 30; 
+            if (Math.abs(deltaAzimuth) < fov && Math.abs(deltaPitch) < fov) {
+                isEnemyVisible = true;
+                enemyEl.style.display = 'block';
+
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+
+                let screenX = (screenWidth / 2) + (deltaAzimuth / fov) * (screenWidth / 2);
+                let screenY = (screenHeight / 2) - (deltaPitch / fov) * (screenHeight / 2);
+
+                enemyEl.style.left = `${screenX - 40}px`;
+                enemyEl.style.top = `${screenY - 40}px`;
+            } else {
+                isEnemyVisible = false;
+                enemyEl.style.display = 'none';
+            }
+
+            requestAnimationFrame(updateGame);
+        }
+
+        // LÖVÉS MECHANIKA
+        shootBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            triggerShoot();
+        });
+        shootBtn.addEventListener('click', () => {
+            if (!('ontouchstart' in window)) triggerShoot();
+        });
+
+        function triggerShoot() {
+            if (isEnemyVisible) {
+                const enemyRect = enemyEl.getBoundingClientRect();
+                const centerX = window.innerWidth / 2;
+                const centerY = window.innerHeight / 2;
+                
+                const enemyCenterX = enemyRect.left + 40;
+                const enemyCenterY = enemyRect.top + 40;
+                const distance = Math.hypot(centerX - enemyCenterX, centerY - enemyCenterY);
+
+                if (distance < 50) { // Találat egy sugáron belül
+                    score++;
+                    scoreView.innerText = `Találat: ${score}`;
+                    enemyEl.style.background = 'yellow';
+                    setTimeout(() => { enemyEl.style.background = 'red'; }, 150);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+// <!-- === 3. RÉSZ VÉGE === -->
