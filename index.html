@@ -3,41 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Telokill Prototípus</title>
+    <title>Szenzoros Teszt Játék</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; color: white; }
         
+        /* Fő játéktér */
         #game-stage { width: 100%; height: 100%; position: relative; display: flex; justify-content: center; align-items: center; }
-        #crosshair { position: absolute; width: 30px; height: 30px; border: 3px solid #0f0; border-radius: 50%; pointer-events: none; z-index: 10; }
-        #enemy { position: absolute; width: 100px; height: 100px; background: red; border: 3px solid white; display: none; z-index: 5; transition: background 0.1s; }
         
+        /* Talajrács Canvas - A háttérben, a képernyő alsó felére igazítva */
+        #grid-canvas { position: absolute; bottom: 0; left: 0; width: 100%; height: 50%; z-index: 1; pointer-events: none; }
+
+        /* Célkereszt a képernyő közepén */
+        #crosshair { position: absolute; width: 20px; height: 20px; border: 2px solid #0f0; border-radius: 50%; pointer-events: none; z-index: 10; }
+        
+        /* Ellenség */
+        #enemy { position: absolute; width: 80px; height: 80px; background: red; border: 3px solid white; display: none; z-index: 5; transition: background 0.1s; }
+        
+        /* UI Elrendezés */
         #hud-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; pointer-events: none; z-index: 20; }
-        .hud-left { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; pointer-events: auto; }
         
-        #radar { width: 140px; height: 140px; border: 2px solid #0f0; border-radius: 50%; position: relative; background: rgba(0,255,0,0.05); }
-        #radar-center { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #0f0; border-radius: 50%; transform: translate(-50%, -50%); }
-        #radar-blip { position: absolute; width: 10px; height: 10px; background: red; border-radius: 50%; transform: translate(-50%, -50%); display: block; }
+        .hud-left { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; pointer-events: auto; }
+        #radar { width: 120px; height: 120px; border: 2px solid #0f0; border-radius: 50%; position: relative; background: rgba(0,255,0,0.05); }
+        #radar-center { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background: #0f0; border-radius: 50%; transform: translate(-50%, -50%); }
+        #radar-blip { position: absolute; width: 8px; height: 8px; background: red; border-radius: 50%; transform: translate(-50%, -50%); display: block; }
         
         .hud-right { flex: 1; display: flex; justify-content: flex-end; align-items: center; padding: 20px; pointer-events: auto; }
-        #shoot-btn { width: 160px; height: 160px; border-radius: 50%; background: #ff3333; border: 5px solid white; color: white; font-size: 26px; font-weight: bold; box-shadow: 0 0 20px rgba(255,0,0,0.5); }
+        #shoot-btn { width: 150px; height: 150px; border-radius: 50%; background: #ff3333; border: 5px solid white; color: white; font-size: 24px; font-weight: bold; box-shadow: 0 0 20px rgba(255,0,0,0.5); }
         #shoot-btn:active { background: #990000; transform: scale(0.95); }
 
         #start-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
         #start-btn { padding: 20px 40px; font-size: 22px; background: #0f0; color: black; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
         
-        #motion-debug { font-size: 16px; color: #aaa; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+        #motion-debug { font-size: 14px; color: #aaa; }
     </style>
 </head>
 <body>
 <!-- === 1. RÉSZ VÉGE === -->
 
-         <div id="start-overlay">
+    <div id="start-overlay">
         <h2 style="margin-bottom: 20px; text-align:center;">Telokill Prototípus</h2>
         <button id="start-btn">JÁTÉK INDÍTÁSA & SZENZOROK</button>
     </div>
 
     <div id="game-stage">
+        <!-- Ide került be a talajrács rajzvászna -->
+        <canvas id="grid-canvas"></canvas>
+        
         <div id="crosshair"></div>
         <div id="enemy"></div>
         
@@ -81,8 +93,11 @@
         const scoreView = document.getElementById('score-view');
         const dbgDodge = document.getElementById('dbg-dodge');
         const dbgDuck = document.getElementById('dbg-duck');
+        
+        // Canvas kontextus lekérése
+        const canvas = document.getElementById('grid-canvas');
+        const ctx = canvas.getContext('2d');
 
-        // Segédfunkció a képernyőre íráshoz
         function printLog(line, text) {
             const el = document.getElementById('l' + line);
             if (el) el.innerText = "> " + text;
@@ -92,67 +107,46 @@
             printLog(1, "Gomb megnyomva!");
             startOverlay.style.display = 'none';
             
-            printLog(2, "Szenzor API ellenőrzése...");
-            if (typeof DeviceOrientationEvent !== 'undefined') {
-                printLog(3, "DeviceOrientationEvent létezik.");
-                
-                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    printLog(4, "iOS típusú engedélykérés indul...");
-                    DeviceOrientationEvent.requestPermission()
-                        .then(permissionState => {
-                            printLog(4, "iOS válasz: " + permissionState);
-                            if (permissionState === 'granted') {
-                                initSensors();
-                            } else {
-                                alert("Szenzor tiltva! Engedélyezd a Safari beállításaiban!");
-                            }
-                        })
-                        .catch(error => {
-                            printLog(4, "iOS hiba: " + error);
-                            initSensors(); // Hiba esetén is megpróbáljuk hátha
-                        });
-                } else {
-                    printLog(4, "Standard/Android mód (nincs külön ablak).");
-                    initSensors();
-                }
+            // Canvas méretezése a képernyőhöz igazítva
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight / 2;
+            
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') { initSensors(); }
+                    })
+                    .catch(error => { initSensors(); });
             } else {
-                printLog(3, "HIBA: A böngésző nem ismeri ezt a szenzort!");
                 initSensors();
             }
         });
 
         function initSensors() {
-            printLog(1, "Szenzorok kötése folyamatban...");
-            
             window.addEventListener('deviceorientation', function(event) {
                 if (event && event.alpha !== null) {
                     currentOrientation.alpha = event.alpha;
                     currentOrientation.beta = event.beta || 0;
-                    printLog(2, "Giroszkóp OK! Alpha: " + Math.round(event.alpha));
+                    printLog(2, "Szenzor OK! Alpha: " + Math.round(event.alpha));
                 }
             }, true);
 
             window.addEventListener('devicemotion', function(event) {
                 const acc = event.accelerationIncludingGravity;
                 if (!acc) return;
-
                 if (acc.x > 3.5) { dbgDodge.innerText = "Kitérés: BALRA"; }
                 else if (acc.x < -3.5) { dbgDodge.innerText = "Kitérés: JOBBRA"; }
                 else { dbgDodge.innerText = "Kitérés: Közép"; }
-
                 if (acc.y > 14) { dbgDuck.innerText = "Státusz: GUGGOLÁS"; }
                 else { dbgDuck.innerText = "Státusz: Áll"; }
             }, true);
 
-            printLog(3, "Játékciklus (Update) indítása...");
             requestAnimationFrame(updateGame);
         }
 // <!-- === 2. RÉSZ VÉGE === -->
 
 
-
-
-              let enemyAngle = 45; 
+        let enemyAngle = 45; 
         let targetAngleOffset = 0;
         let smoothedAngleOffset = 0;
         let loopCounter = 0;
@@ -163,12 +157,56 @@
             enemyEl.style.display = 'none';
         }
 
-        function updateGame() {
-            // Folyamatosan jelezzük a képernyőn, hogy a fő hurok fut és nem fagyott le semmi
-            loopCounter++;
-            if (loopCounter % 30 === 0) {
-                printLog(4, "Loop fut... (" + loopCounter + ")");
+        // 3D Perspektivikus rács rajzoló függvény
+        function drawGrid(angle) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = "rgba(0, 255, 0, 0.25)"; // Halványzöld rácsvonalak
+            ctx.lineWidth = 1.5;
+
+            const w = canvas.width;
+            const h = canvas.height;
+            const horizonY = 0; // A rács teteje a horizont (vászon teteje)
+            const vanishingPointX = w / 2; // Perspektíva enyészpontja középen
+
+            // Sugárirányú (mélységi) vonalak rajzolása, amik a forgástól függően elmozdulnak
+            // 15 fokonként húzunk egy vonalat a virtuális térben
+            for (let deg = -180; deg <= 180; deg += 15) {
+                // Hozzáadjuk a játékos elfordulási szögét
+                let relativeAngle = deg + angle;
+                
+                // Normalizálás -180 és 180 közé
+                while (relativeAngle < -180) relativeAngle += 360;
+                while (relativeAngle > 180) relativeAngle -= 360;
+
+                // Csak azokat rajzoljuk ki, amik a játékos előtti látómezőben (FOV) vannak
+                if (Math.abs(relativeAngle) < 60) {
+                    // Leképezzük a szöget a vászon aljára (X koordináta)
+                    let xAtBottom = (w / 2) + (relativeAngle / 45) * (w / 2);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(vanishingPointX, horizonY); // Enyészpontból indul
+                    ctx.lineTo(xAtBottom, h);             // A vászon aljára fut ki
+                    ctx.stroke();
+                }
             }
+
+            // Vízszintes vonalak (mélységérzet szimulálása)
+            // Fix pozíciójúak, de az illúzió miatt exponenciálisan sűrűsödnek a horizont felé
+            const numHorizontalLines = 8;
+            for (let i = 1; i <= numHorizontalLines; i++) {
+                // Exponenciális eloszlás a perspektivikus hatásért
+                let y = Math.pow(i / numHorizontalLines, 2) * h;
+                
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+        }
+
+        function updateGame() {
+            loopCounter++;
+            if (loopCounter % 30 === 0) { printLog(4, "Loop fut... (" + loopCounter + ")"); }
 
             if (currentOrientation.alpha !== 0) {
                 targetAngleOffset = -currentOrientation.alpha;
@@ -179,16 +217,21 @@
                 smoothedAngleOffset += angleDiff * SMOOTH_FACTOR;
             }
 
+            // A talajrács kirajzolása a simított elfordulási szög alapján
+            drawGrid(smoothedAngleOffset);
+
             let deltaAzimuth = enemyAngle - smoothedAngleOffset;
             while (deltaAzimuth < -180) deltaAzimuth += 360;
             while (deltaAzimuth > 180) deltaAzimuth -= 360;
 
-            const radarMaxDeg = 180;
-            let radarX = (deltaAzimuth / radarMaxDeg) * 50; 
-            radarX = Math.max(-50, Math.min(50, radarX));
+            // Körkörös radar koordináta számítás (A korábbi gondolatmenetünk alapján)
+            let radarRadians = (deltaAzimuth * Math.PI) / 180;
+            const radarRadius = 50;
+            let radarX = Math.sin(radarRadians) * radarRadius;
+            let radarY = -Math.cos(radarRadians) * radarRadius;
 
             radarBlip.style.left = "calc(50% + " + radarX + "px)";
-            radarBlip.style.top = "50%";
+            radarBlip.style.top = "calc(50% + " + radarY + "px)";
 
             const fovX = 45; 
 
@@ -212,13 +255,8 @@
             requestAnimationFrame(updateGame);
         }
 
-        shootBtn.addEventListener('touchstart', function(e) {
-            e.preventDefault();
-            triggerShoot();
-        });
-        shootBtn.addEventListener('click', function() {
-            if (!('ontouchstart' in window)) triggerShoot();
-        });
+        shootBtn.addEventListener('touchstart', function(e) { e.preventDefault(); triggerShoot(); });
+        shootBtn.addEventListener('click', function() { if (!('ontouchstart' in window)) triggerShoot(); });
 
         function triggerShoot() {
             if (isEnemyVisible) {
@@ -242,5 +280,3 @@
 </body>
 </html>
 // <!-- === 3. RÉSZ VÉGE === -->
-
-
