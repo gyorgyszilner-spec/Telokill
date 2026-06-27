@@ -149,23 +149,12 @@
         }
 // <!-- === 2. RÉSZ VÉGE === -->
 
-
-
-             // Játékmenet változók
+        // Játékmenet változók
         let enemyAngle = 45; 
         let targetAngleOffset = 0;
         let smoothedAngleOffset = 0;
-        let isUsingMouse = false;
 
-        // PC-s tesztelés egérrel
-        window.addEventListener('mousemove', function(e) {
-            if (currentOrientation.alpha === 0) {
-                isUsingMouse = true;
-                const ratio = e.clientX / window.innerWidth;
-                targetAngleOffset = (ratio - 0.5) * 360; 
-            }
-        });
-
+        // Új ellenség generálása véletlenszerű helyre (0 és 360 fok között)
         function spawnNextEnemy() {
             enemyAngle = Math.floor(Math.random() * 360);
             isEnemyVisible = false;
@@ -174,31 +163,32 @@
 
         // Fő játékciklus (60 FPS)
         function updateGame() {
-            if (isUsingMouse) {
-                smoothedAngleOffset = targetAngleOffset;
-            } else if (currentOrientation.alpha !== 0) {
+            // Kizárólag akkor frissítünk, ha a telefon valós szenzoradatot küld
+            if (currentOrientation.alpha !== 0) {
                 targetAngleOffset = -currentOrientation.alpha;
                 
+                // Sima mozgás kiszámítása (LERP) a rángatózás ellen
                 let angleDiff = targetAngleOffset - smoothedAngleOffset;
                 while (angleDiff < -180) angleDiff += 360;
                 while (angleDiff > 180) angleDiff -= 360;
                 smoothedAngleOffset += angleDiff * SMOOTH_FACTOR;
             }
 
+            // Kiszámoljuk az ellenség relatív helyzetét a játékos látószögéhez képest
             let deltaAzimuth = enemyAngle - smoothedAngleOffset;
             while (deltaAzimuth < -180) deltaAzimuth += 360;
             while (deltaAzimuth > 180) deltaAzimuth -= 360;
 
-            // Radar rajzolás
+            // --- RADAR FRISSÍTÉSE ---
             const radarMaxDeg = 180;
             let radarX = (deltaAzimuth / radarMaxDeg) * 50; 
             radarX = Math.max(-50, Math.min(50, radarX));
 
             radarBlip.style.left = "calc(50% + " + radarX + "px)";
-            radarBlip.style.top = "50%";
+            radarBlip.style.top = "50%"; // Fixen a vízszintes középvonalon tartjuk
 
-            // Ellenség négyzet megjelenítése (90 fokos látómező)
-            const fovX = 45; 
+            // --- ELLENSÉG MEGJELENÍTÉSE (90 FOKOS LÁTÓMEZŐ) ---
+            const fovX = 45; // 45 fok balra, 45 fok jobbra
 
             if (Math.abs(deltaAzimuth) < fovX) {
                 isEnemyVisible = true;
@@ -207,6 +197,7 @@
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
 
+                // Fokok lefordítása képernyő-pixel pozícióra
                 let screenX = (screenWidth / 2) + (deltaAzimuth / fovX) * (screenWidth / 2);
                 let screenY = screenHeight / 2;
 
@@ -214,13 +205,14 @@
                 enemyEl.style.top = (screenY - 40) + "px";
             } else {
                 isEnemyVisible = false;
+                enemyEl.style.none = 'none';
                 enemyEl.style.display = 'none';
             }
 
             requestAnimationFrame(updateGame);
         }
 
-        // Lövés kezelő
+        // LÖVÉS KEZELŐ
         shootBtn.addEventListener('touchstart', function(e) {
             e.preventDefault();
             triggerShoot();
@@ -235,11 +227,13 @@
                 const centerX = window.innerWidth / 2;
                 const enemyCenterX = enemyRect.left + 40;
                 
+                // Találat ellenőrzése a célkereszt középpontjához képest
                 if (Math.abs(centerX - enemyCenterX) < 60) {
                     score++;
                     scoreView.innerText = "Találat: " + score;
                     enemyEl.style.background = 'yellow';
                     
+                    // Rövid villanás után eltüntetjük, és új helyre rakjuk a célpontot
                     setTimeout(function() { 
                         enemyEl.style.background = 'red';
                         spawnNextEnemy();
@@ -248,4 +242,7 @@
             }
         }
     </script>
+</body>
+</html>
+// <!-- === 3. RÉSZ VÉGE === -->
 
