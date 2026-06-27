@@ -152,15 +152,17 @@
             smoothedOrientation.alpha += diffAlpha * SMOOTH_FACTOR;
             smoothedOrientation.beta += (currentOrientation.beta - smoothedOrientation.beta) * SMOOTH_FACTOR;
 
-            // Relatív szögek a célponthoz kistámítása
+            // Vízszintes eltérés (Azimuth): Teljes 360 fokos valós tér lefedése
             let deltaAzimuth = enemyWorldAzimuth - (360 - smoothedOrientation.alpha);
             if (deltaAzimuth > 180) deltaAzimuth -= 360;
             if (deltaAzimuth < -180) deltaAzimuth += 360;
 
-            let deltaPitch = enemyWorldPitch - (smoothedOrientation.beta - 90); // 90 fokos korrekció az arc előtti tartáshoz
+            // Függőleges eltérés (Pitch): 90 fokos korrekció az arc előtti tartáshoz (90 fok = tiszta horizont)
+            let deltaPitch = enemyWorldPitch - (smoothedOrientation.beta - 90); 
 
             // --- RADAR FRISSÍTÉSE ---
-            const radarMaxDeg = 90;
+            // A radar széle mostantól a tiszta 180 fokos hátrafordulást jelenti (max skála)
+            const radarMaxDeg = 180;
             let radarX = (deltaAzimuth / radarMaxDeg) * 50; 
             let radarY = -(deltaPitch / radarMaxDeg) * 50;
 
@@ -170,17 +172,21 @@
             radarBlip.style.left = `calc(50% + ${radarX}px)`;
             radarBlip.style.top = `calc(50% + ${radarY}px)`;
 
-            // --- ELLENSÉG MEGJELENÍTÉSE (FOV: 30 FOK) ---
-            const fov = 30; 
-            if (Math.abs(deltaAzimuth) < fov && Math.abs(deltaPitch) < fov) {
+            // --- ELLENSÉG MEGJELENÍTÉSE (VALÓS 90 FOKOS LÁTÓMEZŐ) ---
+            // Vízszintesen 90 fokos (balra 45, jobbra 45), függőlegesen 90 fokos (fel 45, le 45) tartomány
+            const fovX = 45; 
+            const fovY = 45; 
+
+            if (Math.abs(deltaAzimuth) < fovX && Math.abs(deltaPitch) < fovY) {
                 isEnemyVisible = true;
                 enemyEl.style.display = 'block';
 
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
 
-                let screenX = (screenWidth / 2) + (deltaAzimuth / fov) * (screenWidth / 2);
-                let screenY = (screenHeight / 2) - (deltaPitch / fov) * (screenHeight / 2);
+                // Lineáris leképezés a képernyő pixeljeire a kért fizikai fokok alapján
+                let screenX = (screenWidth / 2) + (deltaAzimuth / fovX) * (screenWidth / 2);
+                let screenY = (screenHeight / 2) - (deltaPitch / fovY) * (screenHeight / 2);
 
                 enemyEl.style.left = `${screenX - 40}px`;
                 enemyEl.style.top = `${screenY - 40}px`;
@@ -211,7 +217,7 @@
                 const enemyCenterY = enemyRect.top + 40;
                 const distance = Math.hypot(centerX - enemyCenterX, centerY - enemyCenterY);
 
-                if (distance < 50) { // Találat egy sugáron belül
+                if (distance < 60) { // Megnövelt találati sugár a dinamikusabb mozgáshoz
                     score++;
                     scoreView.innerText = `Találat: ${score}`;
                     enemyEl.style.background = 'yellow';
@@ -223,3 +229,4 @@
 </body>
 </html>
 // <!-- === 3. RÉSZ VÉGE === -->
+
