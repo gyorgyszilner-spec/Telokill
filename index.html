@@ -32,7 +32,7 @@
 <body>
 <!-- === 1. RÉSZ VÉGE === -->
 
-           <div id="start-overlay">
+     <div id="start-overlay">
         <h2 style="margin-bottom: 20px; text-align:center;">Telokill Prototípus</h2>
         <button id="start-btn">JÁTÉK INDÍTÁSA & SZENZOROK</button>
     </div>
@@ -51,6 +51,7 @@
                     <p id="dbg-dodge">Kitérés: Közép</p>
                     <p id="dbg-duck">Státusz: Áll</p>
                     <p id="score-view">Találat: 0</p>
+                    <p id="dbg-sensor" style="font-size:10px; color:yellow;">Szenzor: Várakozás...</p>
                 </div>
             </div>
             <div class="hud-right">
@@ -60,11 +61,10 @@
     </div>
 
     <script>
-        // Virtuális térbeli koordináták fokban mérve
+        // Globális koordináták és állapotok
         const enemyWorldPitch = 0;    
-
         let currentOrientation = { alpha: 0, beta: 0 };
-        const SMOOTH_FACTOR = 0.15; // Szűrés (0.01 = lassú/sima, 1 = rángató)
+        const SMOOTH_FACTOR = 0.15; 
 
         let score = 0;
         let isEnemyVisible = false;
@@ -77,49 +77,52 @@
         const scoreView = document.getElementById('score-view');
         const dbgDodge = document.getElementById('dbg-dodge');
         const dbgDuck = document.getElementById('dbg-duck');
+        const dbgSensor = document.getElementById('dbg-sensor');
 
-        // Gombnyomás kezelése szigorú aszinkron módon
-        startBtn.addEventListener('click', async () => {
-            // Ellenőrizzük, hogy iOS eszközről van-e szó, ami engedélyt követel
+        // Az indítógomb eseménykezelője, ami kikényszeríti az engedélykérő ablakot
+        startBtn.addEventListener('click', function() {
+            startOverlay.style.display = 'none';
+            
+            // Ellenőrizzük, hogy iOS (Apple) eszközről van-e szó
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const permission = await DeviceOrientationEvent.requestPermission();
-                    if (permission === 'granted') {
-                        startBtnApproved();
-                    } else {
-                        alert("Szenzor hozzáférés megtagadva. Kérjük, engedélyezze a beállításokban!");
-                    }
-                } catch (e) {
-                    alert("Biztonsági hiba történt az engedélykérésnél: " + e);
-                }
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            dbgSensor.innerText = "Szenzor: iOS Engedélyezve";
+                            initSensors();
+                        } else {
+                            dbgSensor.innerText = "Szenzor: iOS Megtagadva";
+                            alert("Kérjük, engedélyezze a mozgásszenzorokat a Safari beállításaiban!");
+                        }
+                    })
+                    .catch(error => {
+                        dbgSensor.innerText = "Szenzor hiba: " + error;
+                        // Hiba esetén is megpróbáljuk elindítani, hátha asztali gép
+                        initSensors();
+                    });
             } else {
-                // Android vagy PC esetén nincs szükség külön ablakos engedélyre, azonnal indulhat
-                startBtnApproved();
+                // Android vagy PC esetén nincs szükség ablakos engedélyre, azonnal kötünk
+                dbgSensor.innerText = "Szenzor: Android/PC Mód";
+                initSensors();
             }
         });
 
-        // Csak akkor tüntetjük el a panelt és indítjuk el a motort, ha a böngésző engedte
-        function startBtnApproved() {
-            startOverlay.style.display = 'none';
-            initSensors();
-            if (navigator.wakeLock) { navigator.wakeLock.request('screen').catch(()=>{}); }
-        }
-
         function initSensors() {
-            // CÉLZÁS (Giroszkóp)
-            window.addEventListener('deviceorientation', (event) => {
+            // Iránytű és forgás adatok fogadása
+            window.addEventListener('deviceorientation', function(event) {
                 if (event && event.alpha !== null) {
                     currentOrientation.alpha = event.alpha;
                     currentOrientation.beta = event.beta || 0;
+                    dbgSensor.innerText = "A: " + Math.round(event.alpha) + " B: " + Math.round(event.beta);
                 }
             }, true);
 
-            // KITÉRÉS ÉS GUGGOLÁS (Gyorsulásmérő)
-            window.addEventListener('devicemotion', (event) => {
+            // Fizikai gyorsulás (kitérés, guggolás) fogadása
+            window.addEventListener('devicemotion', function(event) {
                 const acc = event.accelerationIncludingGravity;
                 if (!acc) return;
 
-                // Kitérés detektálás (X tengely)
+                // Kitérés (X tengely)
                 if (acc.x > 3.5) {
                     dbgDodge.innerText = "Kitérés: BALRA";
                     dbgDodge.className = "action-active";
@@ -131,7 +134,7 @@
                     dbgDodge.className = "";
                 }
 
-                // Guggolás detektálás (Y tengely hirtelen megugrása)
+                // Guggolás (Y tengely)
                 if (acc.y > 14) {
                     dbgDuck.innerText = "Státusz: GUGGOLÁS";
                     dbgDuck.className = "action-active";
@@ -141,29 +144,28 @@
                 }
             }, true);
 
-            // Fő játékciklus indítása
+            // Indítjuk a fő renderelési ciklust
             requestAnimationFrame(updateGame);
         }
 // <!-- === 2. RÉSZ VÉGE === -->
 
 
-         // Játékállapot változók
-        let enemyAngle = 45; // Az első ellenség helye (fokban)
+
+             // Játékmenet változók
+        let enemyAngle = 45; 
         let targetAngleOffset = 0;
         let smoothedAngleOffset = 0;
         let isUsingMouse = false;
 
-        // PC-s tesztelés: Egérmozgás figyelése
-        window.addEventListener('mousemove', (e) => {
-            // Ha nincs telefonos szenzoradat, automatikusan az egér irányít
+        // PC-s tesztelés egérrel
+        window.addEventListener('mousemove', function(e) {
             if (currentOrientation.alpha === 0) {
                 isUsingMouse = true;
                 const ratio = e.clientX / window.innerWidth;
-                targetAngleOffset = (ratio - 0.5) * 360; // -180 és +180 fok között
+                targetAngleOffset = (ratio - 0.5) * 360; 
             }
         });
 
-        // Új ellenség generálása véletlenszerű helyre
         function spawnNextEnemy() {
             enemyAngle = Math.floor(Math.random() * 360);
             isEnemyVisible = false;
@@ -172,36 +174,31 @@
 
         // Fő játékciklus (60 FPS)
         function updateGame() {
-            // Ha telefonon vagyunk, a tiszta Alpha (forgás) értéket használjuk, fagyásbiztosan
-            if (!isUsingMouse && currentOrientation.alpha !== 0) {
-                // Az alpha 0-360 között mozog, átalakítjuk relatív elmozdulássá
+            if (isUsingMouse) {
+                smoothedAngleOffset = targetAngleOffset;
+            } else if (currentOrientation.alpha !== 0) {
                 targetAngleOffset = -currentOrientation.alpha;
+                
+                let angleDiff = targetAngleOffset - smoothedAngleOffset;
+                while (angleDiff < -180) angleDiff += 360;
+                while (angleDiff > 180) angleDiff -= 360;
+                smoothedAngleOffset += angleDiff * SMOOTH_FACTOR;
             }
 
-            // Sima mozgás kiszámítása (LERP) a rángatózás ellen
-            let angleDiff = targetAngleOffset - smoothedAngleOffset;
-            
-            // Körkörös átfordulás kezelése, hogy ne ugorjon a kép 0 és 360 fok között
-            while (angleDiff < -180) angleDiff += 360;
-            while (angleDiff > 180) angleDiff -= 360;
-            
-            smoothedAngleOffset += angleDiff * SMOOTH_FACTOR;
-
-            // Ellenség relatív helyzete a játékoshoz képest
             let deltaAzimuth = enemyAngle - smoothedAngleOffset;
             while (deltaAzimuth < -180) deltaAzimuth += 360;
             while (deltaAzimuth > 180) deltaAzimuth -= 360;
 
-            // --- RADAR FRISSÍTÉSE ---
+            // Radar rajzolás
             const radarMaxDeg = 180;
             let radarX = (deltaAzimuth / radarMaxDeg) * 50; 
             radarX = Math.max(-50, Math.min(50, radarX));
 
-            radarBlip.style.left = `calc(50% + ${radarX}px)`;
-            radarBlip.style.top = `50%`; // Fixen középen tartjuk függőlegesen
+            radarBlip.style.left = "calc(50% + " + radarX + "px)";
+            radarBlip.style.top = "50%";
 
-            // --- ELLENSÉG MEGJELENÍTÉSE (90 FOKOS LÁTÓMEZŐ) ---
-            const fovX = 45; // 45 fok balra, 45 fok jobbra
+            // Ellenség négyzet megjelenítése (90 fokos látómező)
+            const fovX = 45; 
 
             if (Math.abs(deltaAzimuth) < fovX) {
                 isEnemyVisible = true;
@@ -213,8 +210,8 @@
                 let screenX = (screenWidth / 2) + (deltaAzimuth / fovX) * (screenWidth / 2);
                 let screenY = screenHeight / 2;
 
-                enemyEl.style.left = `${screenX - 40}px`;
-                enemyEl.style.top = `${screenY - 40}px`;
+                enemyEl.style.left = (screenX - 40) + "px";
+                enemyEl.style.top = (screenY - 40) + "px";
             } else {
                 isEnemyVisible = false;
                 enemyEl.style.display = 'none';
@@ -223,12 +220,12 @@
             requestAnimationFrame(updateGame);
         }
 
-        // LÖVÉS MECHANIKA
-        shootBtn.addEventListener('touchstart', (e) => {
+        // Lövés kezelő
+        shootBtn.addEventListener('touchstart', function(e) {
             e.preventDefault();
             triggerShoot();
         });
-        shootBtn.addEventListener('click', () => {
+        shootBtn.addEventListener('click', function() {
             if (!('ontouchstart' in window)) triggerShoot();
         });
 
@@ -240,10 +237,10 @@
                 
                 if (Math.abs(centerX - enemyCenterX) < 60) {
                     score++;
-                    scoreView.innerText = `Találat: ${score}`;
+                    scoreView.innerText = "Találat: " + score;
                     enemyEl.style.background = 'yellow';
                     
-                    setTimeout(() => { 
+                    setTimeout(function() { 
                         enemyEl.style.background = 'red';
                         spawnNextEnemy();
                     }, 150);
@@ -251,6 +248,4 @@
             }
         }
     </script>
-</body>
-</html>
-// <!-- === 3. RÉSZ VÉGE === -->
+
