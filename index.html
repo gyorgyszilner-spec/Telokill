@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Játékvezérlő v9.2</title>
+<title>Fal-Kép Játékvezérlő v9.3</title>
 <style>
 body { margin: 0; font-family: sans-serif; background: #111; color: #fff; }
 .keret { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 12px; }
@@ -34,7 +34,7 @@ body { margin: 0; font-family: sans-serif; background: #111; color: #fff; }
 </div>
 
 <script>
-const VERZIÓ = "v9.2.0";
+const VERZIÓ = "v9.3.0";
 let fut = false;
 
 // Szenzor és szűrt adatok
@@ -44,7 +44,7 @@ let rax = 0, ray = 0, raz = 0;
 let utolsoParancs = "RELEASE";
 
 /* =========================================================================
-   LÉPÉSDETEKTOR VÁLTOZÓK
+   LÉPÉSDETEKTOR VÁLTOZÓK (SZIGORÍTOTT HOLTTÉR)
    ========================================================================= */
 let utolsoLepesIdo = 0;
 let lepesIdokozok = []; 
@@ -78,6 +78,7 @@ document.getElementById("inditas").onclick = async () => {
 function szenzor(e) {
     const a = e.accelerationIncludingGravity || {x:0, y:0, z:0};
     
+    // Aluláteresztő szűrő a kézremegés csillapítására
     ax = ax * 0.75 + a.x * 0.25;
     ay = ay * 0.75 + a.y * 0.25;
     az = az * 0.75 + a.z * 0.25;
@@ -88,11 +89,17 @@ function szenzor(e) {
     }
 }
 
+/* =========================================================================
+   LÉPÉSDETEKTOR (HOLTTÉR + HISZTERÉZIS VÉDELEMMEL)
+   ========================================================================= */
 function detectLepes(jelenlegiDz) {
     const most = performance.now();
     
-    if (jelenlegiDz > 1.4 && utolsoGyorsulasZ <= 1.4) {
-        if (most - utolsoLepesIdo > 220) {
+    // Szigorúbb belépési küszöb: 1.8 m/s² feletti rázkódás kell, hogy egyáltalán lépésnek vegyük
+    if (Math.abs(jelenlegiDz) > 1.8 && Math.abs(utolsoGyorsulasZ) <= 1.8) {
+        
+        // Időbeli szűrés (240ms debounce), hogy a dőlésekből adódó rántásokat kilőjük
+        if (most - utolsoLepesIdo > 240) {
             const idokoz = most - utolsoLepesIdo;
             utolsoLepesIdo = most;
             utolsoMozgasIdo = most; 
@@ -116,16 +123,18 @@ function kuldParancs(parancs) {
 }
 
 /* =========================================================================
-   FŐ ÁLLAPONGÉP (ÚJ PRIORITÁSI REND)
+   FŐ ÁLLAPONGÉP
    ========================================================================= */
 function feldolgoz() {
     const most = performance.now();
+    const gyorsulasDeltaZ = az - raz;
 
-    // 1. SEBESSÉG KIÉRTÉKELÉSE (Megállás észlelése 750ms után)
+    // 1. SEBESSÉG KIÉRTÉKELÉSE ÉS MEGÁLLÁS-ZÁROLÁS
     let mozgasAllapot = "STOP";
     let atlagIdokoz = 0;
 
-    if (most - utolsoMozgasIdo < 750 && lepesIdokozok.length > 0) {
+    // Hiszterézis: ha a rázkódás 0.6 alá esik, vagy eltelt 600ms lépés nélkül -> azonnali STOP
+    if (most - utolsoMozgasIdo < 600 && lepesIdokozok.length > 0 && Math.abs(gyorsulasDeltaZ) > 0.6) {
         atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
         if (atlagIdokoz < 420) {
             mozgasAllapot = "FUT";
@@ -133,7 +142,7 @@ function feldolgoz() {
             mozgasAllapot = "JAR";
         }
     } else {
-        lepesIdokozok = [];
+        lepesIdokozok = []; // Teljes ürítés a tiszta ALAPÁLLAPOTHOZ
     }
 
     // 2. STATIKUS TENGELYEK KISZÁMÍTÁSA FOKBAN
@@ -149,20 +158,17 @@ function feldolgoz() {
     if (dolesZ > 180) dolesZ -= 360;
     if (dolesZ < -180) dolesZ += 360;
 
-    const gyorsulasDeltaZ = az - raz;
-
-    // Statikus állapotok határai hiszterézissel
+    // Statikus állapotok határai szigorú hiszterézissel
     const isGuggol = gyorsulasDeltaZ > 2.8 || (utolsoParancs === "LE" && gyorsulasDeltaZ > 0.8);
     const isFelNez = dolesZ > 14 || (utolsoParancs === "FEL" && dolesZ > 7);
     const isBalraDolt = dolesX < -14 || (utolsoParancs === "BAL" && dolesX < -7);
     const isJobbraDolt = dolesX > 14 || (utolsoParancs === "JOBB" && dolesX > 7);
 
     /* =========================================================================
-       ÚJ LOGIKAI SORREND: JÁRÁS/FUTÁS BLOKKOLJA A DŐLÉSEKET
+       PRIORITÁSI KIÉRTÉKELÉS
        ========================================================================= */
     
-    // SZABÁLY 1: Ha a mozgásállapot JÁR vagy FUT, ez abszolút elsőbbséget élvez.
-    // Bármit csinál a telefon dőlésszöge, nem számít be a képbe!
+    // Ha valóban mozgásban vagyunk (átléptük a szigorított küszöböt)
     if (mozgasAllapot === "FUT") {
         document.getElementById("allapot").textContent = "🏃 FUTÁS";
         kuldParancs("FUT");
@@ -171,7 +177,7 @@ function feldolgoz() {
         document.getElementById("allapot").textContent = "🚶 JÁRÁS";
         kuldParancs("JAR");
     } 
-    // SZABÁLY 2: Csak akkor nézzük a dőléseket és guggolást, ha a játékos nem jár és nem fut (STOP van)
+    // Ha megálltunk (STOP), újra működnek a statikus irányok
     else if (isGuggol) {
         document.getElementById("allapot").textContent = "GUGGOLÁS / LE";
         kuldParancs("LE");
@@ -185,7 +191,7 @@ function feldolgoz() {
         document.getElementById("allapot").textContent = "TÖRZSDÖNTÉS JOBBRA";
         kuldParancs("JOBB");
     } 
-    // Alapállapot
+    // VALÓDI ALAPÁLLAPOT (Ha senki sem aktív és nincs mozgás)
     else {
         document.getElementById("allapot").textContent = "ALAP (ÁLL ÉS ELŐRE NÉZ)";
         kuldParancs("RELEASE");
