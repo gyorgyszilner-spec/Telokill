@@ -1,10 +1,10 @@
-<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.4.0 === -->
+<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.4.1 === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Heatwave Fizikai Állapotmotor</title>
+    <title>Heatwave Javított Állapotmotor</title>
     <style>
         body { 
             font-family: sans-serif; 
@@ -99,24 +99,22 @@
 <body>
 
     <div class="container">
-        <div class="version-tag">VERZIÓ: v2.4.0 - PHYSICAL STATE ENGINE</div>
+        <!-- FRISSÍTETT VERZIÓSZÁM KIJELZÉS -->
+        <div class="version-tag">VERZIÓ: v2.4.1 - REVERSED PHYSICAL ENGINE</div>
         
         <button id="startBtn">▶ MOTOR INDÍTÁSA</button>
 
-        <!-- Fő mozgási állapot (Áll, Sétál, Fut, Le van guggolva, Felugrott) -->
         <div id="live-state">KÉSZEN ÁLL</div>
-        
-        <!-- Külön elfordulási állapot (Közép, Fordulás Jobbra, Fordulás Balra) -->
         <div id="live-turn">KÖZÉP</div>
         
-        <div id="debug-vals">Töltés...</div>
+        <div id="debug-vals">Kalibrációra vár...</div>
 
         <div id="leftBtn" class="ctrl-btn">BAL</div>
         <div id="rightBtn" class="ctrl-btn">JOBB</div>
     </div>
 <!-- === 1. RÉSZ VÉGE === -->
 
-<!-- === 2. RÉSZ KEZDETE: JELFINOMÍTÓ ÉS ÁLLAPOTGÉP === -->
+<!-- === 2. RÉSZ KEZDETE: ÁTHANGOLT FELISMERŐ LOGIKA === -->
     <script>
         let isRecording = false;
 
@@ -148,10 +146,23 @@
         let airTimeStart = 0;
         let jumpDetectedUntil = 0;
 
+        // Tiszta hangvezérlés
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); 
+                setTimeout(() => {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'hu-HU';
+                    utterance.rate = 1.0;
+                    window.speechSynthesis.speak(utterance);
+                }, 50);
+            }
+        }
+
         function processSensors(rawX, rawY, rawZ, rawMag, currentAlpha, currentBeta) {
             if (!isRecording) return;
 
-            // 1. Első indításnál kalibrálunk: megjegyezzük a kézben tartott alaphelyzet szögeit
+            // 1. Kalibrálás az indítás utáni első 50 mérési pontból
             if (baseBeta === null && calLogsCount < 50) {
                 if (currentBeta !== null) {
                     baseBeta = (baseBeta || 0) + currentBeta;
@@ -166,13 +177,12 @@
                 return;
             }
 
-            // 2. Nyers rázkódás adatok betolása a simító pufferbe
+            // 2. Adatsimító puffer
             magBuffer.push(rawMag); if (magBuffer.length > BUFFER_SIZE) magBuffer.shift();
             yBuffer.push(rawY);     if (yBuffer.length > BUFFER_SIZE) yBuffer.shift();
 
             if (magBuffer.length < BUFFER_SIZE) return;
 
-            // Simított értékek kiszámítása
             const mag = magBuffer.reduce((a, b) => a + b, 0) / magBuffer.length;
             const y = yBuffer.reduce((a, b) => a + b, 0) / yBuffer.length;
 
@@ -180,49 +190,46 @@
             let state = "ÁLL";
             let turn = "KÖZÉP";
 
-            // 3. FORDULÁS DETEKTÁLÁSA (Alpha iránytű szög alapján)
-            let alphaDiff = currentAlpha - baseAlpha;
-            // Körbefordulási korrekció (-180 és +180 fok közé)
+            // 3. JAVÍTOTT FORDULÁS DETEKTÁLÁSA (Megfordított szorzóval és finomított fokhatárral!)
+            let alphaDiff = (currentAlpha - baseAlpha) * -1; // Megfordítva!
             if (alphaDiff > 180) alphaDiff -= 360;
             if (alphaDiff < -180) alphaDiff += 360;
 
-            if (alphaDiff > 18.0) turn = "FORDULÁS JOBBRA";
-            else if (alphaDiff < -18.0) turn = "FORDULÁS BALRA";
+            if (alphaDiff > 15.0) turn = "FORDULÁS JOBBRA";
+            else if (alphaDiff < -15.0) turn = "FORDULÁS BALRA";
 
-            // 4. GUGGOLÁS DETEKTÁLÁSA (Beta előre-hátra dőlési szög alapján)
-            const betaDiff = currentBeta - baseBeta;
+            // 4. JAVÍTOTT GUGGOLÁS DETEKTÁLÁSA (Megfordított szorzóval, így a helyes tartáshoz igazodik!)
+            const betaDiff = (currentBeta - baseBeta) * -1; // Megfordítva!
 
-            // 5. UGRÁS IDŐABLAKOS ELLENŐRZÉSE (Súlytalanság detektálása)
-            // Ha a gyorsulás leesik a súlytalansági zónába (0.6 alá)
+            // 5. UGRÁS SZŰRŐ (Súlytalanság és csapás láncolata)
             if (rawMag < 0.6) {
                 if (airTimeStart === 0) airTimeStart = now;
             } else {
-                // Ha jön a becsapódás (4.0 felett), és előtte voltunk a levegőben
-                if (airTimeStart > 0 && rawMag > 4.0 && (now - airTimeStart) > 80) {
-                    jumpDetectedUntil = now + 600; // 600 ms-ig fixen tartjuk a felugrást
+                if (airTimeStart > 0 && rawMag > 3.8 && (now - airTimeStart) > 70) {
+                    jumpDetectedUntil = now + 500; // 500 ms-ig tartjuk a felugrást
                 }
                 airTimeStart = 0;
             }
 
-            // 6. FŐ ÁLLAPOTGÉP PRIORITÁSI SORRENDBEN
+            // 6. FŐ ÁLLAPOTGÉP PRIORITÁSI SORRENDBEN (Finomított, kényelmesebb HIIT határértékekkel!)
             if (now < jumpDetectedUntil) {
                 state = "FELUGROTT!";
-            } else if (betaDiff > 12.0) { // Tartós dőlés guggoláskor a te számaid alapján
+            } else if (betaDiff > 10.0) { // Biztonságos, stabil guggolási határ dőlés alapján
                 state = "LE VAN GUGGOLVA";
-            } else if (mag > 2.8) {      // Te futási küszöbértéked
+            } else if (mag > 2.0) {      // Finomított futási küszöb, nem kell belehalni
                 state = "FUT";
-            } else if (mag > 1.2) {      // Te séta küszöbértéked
+            } else if (mag > 0.7) {      // Könnyebb séta érzékelés
                 state = "SÉTÁL";
             }
 
             // Élő felület frissítése
             liveStateDiv.textContent = state;
             liveTurnDiv.textContent = turn;
-            debugValsDiv.textContent = `MAG: ${mag.toFixed(2)} | Y: ${y.toFixed(1)} | dBeta: ${betaDiff.toFixed(1)}° | dAlpha: ${alphaDiff.toFixed(1)}°`;
+            debugValsDiv.textContent = `MAG: ${mag.toFixed(2)} | dBeta: ${betaDiff.toFixed(1)}° | dAlpha: ${alphaDiff.toFixed(1)}°`;
         }
 <!-- === 2. RÉSZ VÉGE === -->
 
-<!-- === 3. RÉSZ KEZDETE: SZOFTVERES ESZKÖZÖK ÉS SENSORS AKTIVÁLÁSA v2.4.0 === -->
+<!-- === 3. RÉSZ KEZDETE: SZOFTVERES ESZKÖZÖK ÉS SENSORS AKTIVÁLÁSA v2.4.1 === -->
         // Globális változók a giroszkóp szögeinek átmeneti tárolására
         let latestAlpha = 0;
         let latestBeta = 0;
@@ -274,7 +281,7 @@
             window.addEventListener('deviceorientation', handleOrientation);
             window.addEventListener('devicemotion', handleMotion);
             
-            speak("A fizikai állapot motor elindult. Tartsd a telefont két kézzel magad előtt!");
+            speak("Az áthangolt fizikai állapot motor elindult. Tartsd a telefont két kézzel magad előtt!");
         });
 
         // Giroszkóp adatok beolvasása (Guggolás és Fordulás szögei)
