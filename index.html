@@ -1,3 +1,4 @@
+<!-- === 1. RÉSZ KEZDETE: HTML ÉS CSS STÍLUSOK === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -5,64 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Heatwave Irányított Kalibráció</title>
     <style>
-        body { 
-            font-family: sans-serif; 
-            background: #111; 
-            color: #fff; 
-            padding: 20px; 
-            text-align: center; 
-            margin: 0; 
-        }
-        .container { 
-            max-width: 500px; 
-            margin: 0 auto; 
-            padding-top: 5vh; 
-        }
-        button { 
-            background: #ff5722; 
-            color: white; 
-            border: none; 
-            padding: 20px 40px; 
-            font-size: 22px; 
-            margin: 20px auto; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            display: block; 
-            width: 85%; 
-        }
-        #instruction { 
-            font-size: 32px; 
-            font-weight: bold; 
-            margin: 30px 0; 
-            color: #ffeb3b; 
-            min-height: 80px; 
-            padding: 0 10px; 
-        }
-        #timer { 
-            font-size: 64px; 
-            font-weight: bold; 
-            color: #e91e63; 
-            margin: 20px 0; 
-        }
-        #status { 
-            font-size: 18px; 
-            color: #aaa; 
-            margin-top: 40px; 
-        }
-        .progress-bar { 
-            background: #333; 
-            height: 10px; 
-            border-radius: 5px; 
-            width: 85%; 
-            margin: 20px auto; 
-            overflow: hidden; 
-        }
-        #progress { 
-            background: #4caf50; 
-            height: 100%; 
-            width: 0%; 
-            transition: width 0.3s; 
-        }
+        body { font-family: sans-serif; background: #111; color: #fff; padding: 20px; text-align: center; margin: 0; }
+        .container { max-width: 500px; margin: 0 auto; padding-top: 5vh; }
+        button { background: #ff5722; color: white; border: none; padding: 20px 40px; font-size: 22px; margin: 20px auto; border-radius: 8px; cursor: pointer; display: block; width: 85%; }
+        #instruction { font-size: 32px; font-weight: bold; margin: 30px 0; color: #ffeb3b; min-height: 80px; padding: 0 10px; }
+        #timer { font-size: 64px; font-weight: bold; color: #e91e63; margin: 20px 0; }
+        #status { font-size: 18px; color: #aaa; margin-top: 40px; }
+        .progress-bar { background: #333; height: 10px; border-radius: 5px; width: 85%; margin: 20px auto; overflow: hidden; }
+        #progress { background: #4caf50; height: 100%; width: 0%; transition: width 0.3s; }
     </style>
 </head>
 <body>
@@ -82,11 +33,10 @@
 
         <div id="status">Állapot: Várakozás</div>
     </div>
+<!-- === 1. RÉSZ VÉGE === -->
 
-        <script>
-        // --- 2. RÉSZ KEZDETE: GYAKORLATOK ÉS HANG LOGIKA ---
-        
-        // A sivatagi edzésmátrix pontos listája (minden gyakorlat 10 másodperc)
+<!-- === 2. RÉSZ KEZDETE: JAVÍTOTT GYAKORLATOK ÉS STABIL HANG LOGIKA === -->
+    <script>
         const exercises = [
             { id: "Seta_helyben", name: "Séta helyben (Kényelmesen)" },
             { id: "Futas_helyben", name: "Futás helyben (Tempósan)" },
@@ -95,10 +45,9 @@
             { id: "Futas_magas_terd", name: "Futás helyben, magas térdemeléssel" },
             { id: "Futas_kitereessel", name: "Futás kitéréssel (Szlalom jobbra-balra)" },
             { id: "Guggolas", name: "Guggolás és felállás (Folyamatosan)" },
-            { id: "Kitores", name: "Kitörés előre (Váltott lábbal)" },
             { id: "Ugras_guggolasbol", name: "Ugrás leguggolásból (Felugrás)" },
             { id: "Ugras_futasbol", name: "Ugrás futásból (Átugrás)" },
-            { id: "Labujjhegyre_allat", name: "Lábujjhegyre állás és vissza" },
+            { id: "Labujjhegyre_allitas", name: "Lábujjhegyre állás és vissza" },
             { id: "Rugasi_akcio", name: "Előrerúgás / Hátrarúgás (Váltva)" }
         ];
 
@@ -109,37 +58,44 @@
         let exerciseTimer = null;
         let currentExerciseId = "Felkeszules";
 
-        // HTML elemek referenciái
         const startBtn = document.getElementById('startBtn');
         const instructionDiv = document.getElementById('instruction');
         const timerDiv = document.getElementById('timer');
         const statusDiv = document.getElementById('status');
         const progressDiv = document.getElementById('progress');
 
-        // Magyar nyelvű szövegfelolvasó (TTS) funkció a zsebben történő irányításhoz
+        // Drasztikusan stabilizált felolvasó funkció a mobil böngészőkhöz
         function speak(text) {
             if ('speechSynthesis' in window) {
-                // Biztonsági leállítás az átfedések elkerülésére
+                // Először teljesen lenémítjuk és töröljük a korábbi sort
                 window.speechSynthesis.cancel(); 
                 
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'hu-HU';
-                utterance.rate = 1.1; // Kicsit gyorsabb tempó a ritmus miatt
-                window.speechSynthesis.speak(utterance);
+                // Hagyunk időt a hardvernek az újraindulásra
+                setTimeout(() => {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'hu-HU';
+                    utterance.rate = 1.0; 
+                    utterance.pitch = 1.0;
+                    
+                    // Hibakezelő arra az esetre, ha a telefon elutasítaná a beszédet
+                    utterance.onerror = (e) => {
+                        console.error("Hang hiba:", e);
+                    };
+                    
+                    window.speechSynthesis.speak(utterance);
+                }, 100); 
             }
         }
+<!-- === 2. RÉSZ VÉGE === -->
 
-        // --- 2. RÉSZ VÉGE ---
 
-                // --- 3. RÉSZ KEZDETE: SZENZOROK ÉS FÁJL MENTÉS ---
-
-        // iOS 13+ engedélykérő ablak kezelése
+<!-- === 3. RÉSZ KEZDETE: SZENZOROK, IDŐZÍTŐ ÉS CSV MENTÉS === -->
         async function requestPermission() {
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                 const response = await DeviceMotionEvent.requestPermission();
                 return response === 'granted';
             }
-            return true; // Android vagy régebbi rendszerek
+            return true;
         }
 
         startBtn.addEventListener('click', async () => {
@@ -149,7 +105,6 @@
                 return;
             }
 
-            // Képernyőzár aktiválása fekvő módba a fix belső tengelyekért
             try {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
@@ -169,7 +124,6 @@
 
             window.addEventListener('devicemotion', handleMotion);
             
-            // 5 másodperces felkészülés a zsebbe tételre
             startCountdown(5, "Tedd a telefont a zsebedbe!", () => {
                 runNextExercise();
             });
@@ -220,7 +174,7 @@
                 } else {
                     timerDiv.textContent = timeLeft;
                     if (timeLeft <= 3) {
-                        speak(timeLeft.toString()); // Utolsó 3 mp visszaszámlálása
+                        speak(timeLeft.toString());
                     }
                 }
             }, 1000);
@@ -238,7 +192,6 @@
             const magnitude = Math.sqrt(x*x + y*y + z*z);
             const relTime = (performance.now() - startTimestamp).toFixed(0);
 
-            // Adatsor hozzáadása a memóriához az aktuális gyakorlat azonosítójával
             sensorLogs.push({
                 time: relTime,
                 exercise: currentExerciseId,
@@ -286,4 +239,4 @@
     </script>
 </body>
 </html>
-// --- 3. RÉSZ VÉGE ---
+<!-- === 3. RÉSZ VÉGE === -->
