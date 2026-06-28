@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v7.5.0</title>
+<title>Fal-Kép Motor v7.5.1</title>
 
 <style>
 body {
@@ -46,13 +46,13 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.5.0</div>
+    <div id="verzio">v7.5.1</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.5.0";
+const VERZIÓ = "v7.5.1";
 let fut = false;
 
 // Nyers és szűrt adatok (V7.2.3)
@@ -64,7 +64,7 @@ let dontes = "SEMMI";
 let fuggoleges = "SEMMI";
 
 /* =========================================================================
-   A TE ADATAIDHOZ IGAZÍTOTT LOGIKAI VÁLTOZÓK
+   MOZGÁSI ÉS INTENZITÁS VÁLTOZÓK
    ========================================================================= */
 let utolsoLepesIdo = 0;
 let lepesIdokozok = [];
@@ -139,20 +139,19 @@ function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszo
 }
 
 /* =========================================================================
-   INTELLIGENS LÉPÉSDETEKTOR - LOG ALAPJÁN ÉRZÉKENYÍTVE
+   JAVÍTOTT LÉPÉSDETEKTOR - VÉDELEM A LASSÚ DŐLÉSEK ELLEN
    ========================================================================= */
 function detectLepes(jelenlegiDz, szogValtozas) {
     const most = performance.now();
     
-    // 🔥 1. JAVÍTÁS: Küszöbök leengedve a logok alapján. 
-    // Magas térdnél a Z sokszor csak 0.5-0.6, így a rázkódási kapu 0.5 m/s² lett.
-    // A szögváltozás tüske szintén érzékenyebb: 1.2° fok mintánként.
-    const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.5 && Math.abs(utolsoGyorsulasZ) <= 0.5;
-    const vanDőléshullámTüske = Math.abs(szogValtozas) > 1.2;
+    // 🔥 JAVÍTÁS: Visszaemeltük a belépési holtteret, hogy a sima finom döntések ne indítsák el a mozgást!
+    // Függőleges gyorsulás: 0.5 helyett 0.9 m/s² (a te kérésedre a járás és a tiszta alap megvédéséhez)
+    // Szögsebesség tüske: 1.2° helyett 2.8° mintánként (így a lassú bedőlés nem triggerel, csak a toporgás ritmusa)
+    const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.9 && Math.abs(utolsoGyorsulasZ) <= 0.9;
+    const vanDőléshullámTüske = Math.abs(szogValtozas) > 2.8;
 
     if (vanFüggőlegesRázkódás || vanDőléshullámTüske) {
-        // 60 Hz-es mintavételhez igazított szoros de-bounce ablak (160ms)
-        if (most - utolsoLepesIdo > 160) {
+        if (most - utolsoLepesIdo > 180) {
             const idokoz = most - utolsoLepesIdo;
             utolsoLepesIdo = most;
             utolsoMozgasIdo = most;
@@ -160,7 +159,7 @@ function detectLepes(jelenlegiDz, szogValtozas) {
             lepesIdokozok.push(idokoz);
             if (lepesIdokozok.length > 3) lepesIdokozok.shift();
 
-            // Kombinált intenzitás pontszám számítása
+            // Kombinált intenzitás számítása a rögzített mintákból
             const aktualisIntenzitas = Math.abs(jelenlegiDz) + (Math.abs(szogValtozas) * 0.4);
             lepesIntenzitások.push(aktualisIntenzitas);
             if (lepesIntenzitások.length > 3) lepesIntenzitások.shift();
@@ -187,15 +186,14 @@ function feldolgoz() {
 
     const dz = az - raz;
 
-    // Lépések gyűjtése a te adataid alapján
+    // Lépések gyűjtése
     detectLepes(dz, szogValtozas);
 
-    // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE A 4 LOG METSZETE ALAPJÁN
+    // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE
     let aktualisSebesseg = "STOP";
     let atlagIntenzitas = 0;
 
-    // 🔥 2. JAVÍTÁS: Időtúllépés finomhangolva 650ms-ra, hogy megálláskor az ALAP azonnal visszatérjen
-    if (most - utolsoMozgasIdo < 650 && lepesIdokozok.length > 0) {
+    if (most - utolsoMozgasIdo < 750 && lepesIdokozok.length > 0) {
         const atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
         
         if (lepesIntenzitások.length > 0) {
@@ -203,13 +201,11 @@ function feldolgoz() {
         }
 
         if (lepesIdokozok.length >= 2) {
-            // Séta vs Futás ritmus választóvonal: 480 ms
-            const isFutam = atlagIdokoz < 480;
+            // Séta vs Futás ritmus határa: 460 ms
+            const isFutam = atlagIdokoz < 460;
             
-            // 🔥 3. JAVÍTÁS: Magas térd választóvonal leengedve 1.15-re!
-            // Mivel láttuk a futás logodon, hogy a kar teljesen lefojtja a mozgást, 
-            // ez az érzékeny határ hozza egyensúlyba a magas térdes sétát és futást.
-            const isMagasTerd = atlagIntenzitas > 1.15; 
+            // Magas térdemelés választóvonala igazítva az emelt bemeneti kapuhoz: 2.10
+            const isMagasTerd = atlagIntenzitas > 2.10; 
 
             if (isFutam) {
                 aktualisSebesseg = isMagasTerd ? "MAGAS TÉRD FUTÁS" : "FUTÁS";
@@ -265,7 +261,6 @@ function feldolgoz() {
         "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n" +
         "MOZGÁS STÁTUSZ: " + mozgásÁllapot + "\n\n" +
         "KOMBI INTENZITÁS:  " + atlagIntenzitas.toFixed(2) + "\n" +
-        " -> SKÁLA: MAGAS TÉRD > 1.15 | SIMA < 1.15\n\n" +
         "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
         "SZÖG SEBESSÉG (fok/m): " + szogValtozas.toFixed(2) + "°\n" +
         "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
