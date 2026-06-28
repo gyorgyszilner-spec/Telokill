@@ -1,10 +1,10 @@
-<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.7.1 === -->
+<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.8.0 === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Heatwave Zónavezérelt Állapotmotor</title>
+    <title>Heatwave Absolute Brick Engine</title>
     <style>
         body { 
             font-family: sans-serif; 
@@ -28,7 +28,7 @@
             padding: 20px;
         }
         .version-tag { 
-            color: #ffeb3b; 
+            color: #00ffcc; 
             font-weight: bold; 
             font-size: 14px; 
             position: absolute;
@@ -47,7 +47,7 @@
             z-index: 10;
         }
         #live-state { 
-            font-size: 42px; 
+            font-size: 38px; 
             font-weight: bold; 
             margin: 10px 0; 
             color: #ffeb3b; 
@@ -105,23 +105,24 @@
 <body>
 
     <div class="container">
-        <!-- JAVÍTOTT V2.7.1 VERZIÓSZÁM -->
-        <div class="version-tag">VERZIÓ: v2.7.1 - RELATIVE ZONE ENGINE</div>
+        <!-- PONTOS v2.8.0 VERZIÓSZÁM -->
+        <div class="version-tag">VERZIÓ: v2.8.0 - ABSOLUTE BRICK ENGINE</div>
         
         <button id="startBtn">▶ MOTOR INDÍTÁSA</button>
 
         <div id="live-state">KÉSZEN ÁLL</div>
-        <div id="live-zone">ZÓNA: MÉRÉSRE VÁR</div>
+        <div id="live-zone">ZÓNA: INDÍTÁSRA VÁR</div>
         <div id="live-turn">KÖZÉP</div>
         
-        <div id="debug-vals">Kalibrációra vár...</div>
+        <div id="debug-vals">Szenzorok betöltése...</div>
 
         <div id="leftBtn" class="ctrl-btn">BAL</div>
         <div id="rightBtn" class="ctrl-btn">JOBB</div>
     </div>
 <!-- === 1. RÉSZ VÉGE === -->
 
-<!-- === 2. RÉSZ KEZDETE: RElATÍV ZÓNAMÁTRIX LOGIKA === -->
+
+<!-- === 2. RÉSZ KEZDETE: ABSOLUTE BRICK LOGIKAI MÁTRIX === -->
     <script>
         let isRecording = false;
 
@@ -144,7 +145,7 @@
         let baseAlpha = null, baseBeta = null, baseGamma = null;
         let calLogsCount = 0;
 
-        // SEBESSÉGMÉRŐ PUFFER
+        // SEBESSÉGMÉRŐ PUFFER (Séta/Futás simításához)
         const BUFFER_SIZE = 12;
         let magBuffer = [];
 
@@ -167,7 +168,7 @@
         function processSensors(rawMag, alpha, beta, gamma, rotBeta, rotGamma) {
             if (!isRecording) return;
 
-            // 1. VISSZAÉPÍTETT KALIBRÁCIÓ: Elmentjük a te egyedi telefonod kezdőpozícióját
+            // 1. INDÍTÁSI KALIBRÁCIÓ: Elmentjük a téglaként tartott telefon kiinduló 0-pontját
             if (baseBeta === null && calLogsCount < 50) {
                 if (beta !== null && gamma !== null) {
                     baseAlpha = (baseAlpha || 0) + alpha;
@@ -184,7 +185,7 @@
                 return;
             }
 
-            // 2. Rázkódási puffer a sétához és futáshoz
+            // 2. Rázkódási adatok gyűjtése a pufferbe
             magBuffer.push(rawMag); if (magBuffer.length > BUFFER_SIZE) magBuffer.shift();
             if (magBuffer.length < BUFFER_SIZE) return;
             const mag = magBuffer.reduce((a, b) => a + b, 0) / magBuffer.length;
@@ -194,15 +195,14 @@
             let state = "ÁLL";
             let turn = "KÖZÉP";
 
-            // RELATÍV ELMOZDULÁSOK KISZÁMÍTÁSA A TE 0-PONTODHOZ KÉPEST
-            // Törzsdöntés oldalra (relatív Gamma változás fekvő módban)
+            // RELATÍV ELMOZDULÁSOK A TE FIZIKAI TÉGLAMODELED ALAPJÁN
+            // Törzsdöntés: a tégla hosszú oldallapjai dőlnek meg oldalra (Gamma tengely méri fekvőben)
             let relativeTilt = gamma - baseGamma;
             
-            // Guggolás előre-hátra dőlés (relatív Beta változás fekvő módban)
-            // Ha a kijelző felfelé dől a szemed felé, az nálad a negatív irányú elmozdulás
+            // Guggolás: a tégla rövid oldallapjai dőlnek el hátra, a kijelző felnéz az ég felé (Beta tengely méri)
             let relativeCrouch = beta - baseBeta;
 
-            // 3. UGRÁS SZŰRŐ (Nyers adatokból, azonnali reakció)
+            // 3. NYERS UGRÁS DETEKTÁLÁS (Pufferen kívül az azonnali reakcióért)
             if (rawMag < 0.6) {
                 if (airTimeStart === 0) airTimeStart = now;
             } else {
@@ -212,29 +212,30 @@
                 airTimeStart = 0;
             }
 
-            // === EXKLUZÍV ZÓNÁK RElATÍV ELLENŐRZÉSE ===
+            // === EXKLUZÍV ZÓNÁK IRÁNYÍTÁSA A TE SZABÁLYAID SZERINT ===
 
-            // ZÓNA A: GUGGOLÁS (Ha a kalibrált helyzethez képest a kijelző jelentősen felfelé dől)
+            // ZÓNA 1: GUGGOLÁS (A rövid oldalak megdőlnek, a kijelző az ég felé, azaz felfelé néz)
+            // A te kéztartásod szerint ez egy markáns elmozdulás a kalibrált nullaponthoz képest
             if (relativeCrouch < -25.0) {
                 zone = "GUGGOLÁS ZÓNA";
                 state = "LE VAN GUGGOLVA (C-GOMB)";
             }
-            // ZÓNA B: TÖRZSDÖNTÉS (Ha a kalibrált helyzethez képest oldalra dőlsz több mint 30 fokot)
+            // ZÓNA 2: TÖRZSDÖNTÉS (A hosszú oldalak állnak döntve, szigorú ±30 fokos holtzónán kívül)
             else if (relativeTilt > 30.0) {
                 zone = "TÖRZSDÖNTÉS ZÓNA";
-                turn = "DÖNTÉS JOBBRA (E-GOMB)";
-                state = "TÖRZSDÖNTÉS AKTÍV";
+                turn = "TÖRZSDÖNTÉS JOBBRA (E-GOMB)";
+                state = "SZLALOM AKTÍV";
             } else if (relativeTilt < -30.0) {
                 zone = "TÖRZSDÖNTÉS ZÓNA";
-                turn = "DÖNTÉS BALRA (Q-GOMB)";
-                state = "TÖRZSDÖNTÉS AKTÍV";
+                turn = "TÖRZSDÖNTÉS BALRA (Q-GOMB)";
+                state = "SZLALOM AKTÍV";
             }
-            // ZÓNA C: ALAPÁLLÁS (Ha a szigorú 30 és 25 fokos holtzónákon belül vagy, se guggolás, se döntés)
+            // ZÓNA 3: ALAPÁLLÁS (A tégla egyenesen veled szemben áll, nincsenek zónadőlések)
             else {
                 zone = "ALAPÁLLÁS ZÓNA";
                 turn = "KÖZÉP";
 
-                // 1. Törzsfordítás nézelődés (Giroszkóp tiszta szögsebességből, nincs elhangolódás!)
+                // 1. Törzsfordítás (Csak az alapzónában él, tiszta szögsebességből mérve)
                 if (rotBeta > 55 || rotGamma > 55) {
                     turn = "FORDULÁS JOBBRA (EGÉR-JOBB)";
                     state = "FORDULÁS KÖZBEN";
@@ -242,7 +243,7 @@
                     turn = "FORDULÁS BALRA (EGÉR-BAL)";
                     state = "FORDULÁS KÖZBEN";
                 }
-                // 2. Haladás (Csak ha alapállásban vagy és nem fordulsz törzsből!)
+                // 2. Haladási sebesség (Ha nincs fordulat, jön a séta és a futás)
                 else {
                     if (now < jumpDetectedUntil) {
                         state = "FELUGROTT!";
@@ -256,7 +257,7 @@
                 }
             }
 
-            // Felület frissítése
+            // Élő felület frissítése
             liveZoneDiv.textContent = `ZÓNA: ${zone}`;
             liveStateDiv.textContent = state;
             liveTurnDiv.textContent = turn;
@@ -264,7 +265,8 @@
         }
 <!-- === 2. RÉSZ VÉGE === -->
 
-<!-- === 3. RÉSZ KEZDETE: SZOFTVERES ESZKÖZÖK ÉS SENSORS AKTIVÁLÁSA v2.7.1 === -->
+
+<!-- === 3. RÉSZ KEZDETE: HARDVERES SZENZOROK ÖSSZEKÖTÉSE v2.8.0 === -->
         // Globális változók a dőlésszögek átmeneti tárolására
         let orientAlpha = 0, orientBeta = 0, orientGamma = 0;
 
@@ -284,7 +286,7 @@
                 }
                 return motionGranted && orientGranted;
             } catch(e) {
-                return true; // Androidon vagy asztali böngészőben automatikusan true
+                return true; // Androidon automatikusan engedélyezve van
             }
         }
 
@@ -315,7 +317,7 @@
             window.addEventListener('deviceorientation', handleOrientation);
             window.addEventListener('devicemotion', handleMotion);
             
-            speak("A kalibrált zónamotor elindult. Tartsd a telefont mozdulatlanul az arcod előtt!");
+            speak("Az abszolút tégla motor elindult. Tartsd mozdulatlanul magad előtt a kalibráláshoz!");
         });
 
         // 1. Abszolút szögek (Guggolás és Törzsdöntés ellenőrzéséhez)
@@ -330,12 +332,14 @@
         function handleMotion(event) {
             if (!isRecording) return;
 
+            // Nyers gyorsulási vektor hossza
             const acc = event.acceleration || event.accelerationIncludingGravity;
             let magnitude = 0;
             if (acc && acc.x !== null) {
                 magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
             }
 
+            // Tiszta forgási szögsebességek lekérése (fok/másodperc)
             const rot = event.rotationRate;
             let rotBeta = 0, rotGamma = 0;
             if (rot) {
@@ -343,6 +347,7 @@
                 rotGamma = rot.gamma || 0;
             }
 
+            // Paraméterek átadása az új, tégla-alapú állapotgépnek
             processSensors(magnitude, orientAlpha, orientBeta, orientGamma, rotBeta, rotGamma);
         }
     </script>
