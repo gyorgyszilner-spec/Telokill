@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v7.4.0</title>
+<title>Fal-Kép Motor v7.4.1</title>
 
 <style>
 body {
@@ -47,13 +47,13 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.4.0</div>
+    <div id="verzio">v7.4.1</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.4.0";
+const VERZIÓ = "v7.4.1";
 let fut = false;
 
 // Nyers és szűrt adatok (V7.2.3)
@@ -69,7 +69,7 @@ let fuggoleges = "SEMMI";
    ========================================================================= */
 let utolsoLepesIdo = 0;
 let lepesIdokozok = [];
-let lepesErok = []; // 🔥 ÚJ: A lépések becsapódási erejének (dz) tárolása
+let lepesErok = []; 
 let utolsoGyorsulasZ = 0;
 let utolsoMozgasIdo = 0;
 let mozgásÁllapot = "STOP";
@@ -140,13 +140,15 @@ function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszo
 }
 
 /* =========================================================================
-   KETTŐS LÉPÉSDETEKTOR - ERŐRÖGZÍTÉSSEL KIEGÉSZÍTVE
+   FINOMHANGOLT KETTŐS LÉPÉSDETEKTOR
    ========================================================================= */
 function detectLepes(jelenlegiDz, szogValtozas) {
     const most = performance.now();
     
-    const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.8 && Math.abs(utolsoGyorsulasZ) <= 0.8;
-    const vanDőléshullámTüske = Math.abs(szogValtozas) > 1.9;
+    // 🔥 FIX 1: Járás DZ megemelve 0.8-ról 1.0 m/s²-re!
+    // 🔥 FIX 2: Szögváltozás tüske megemelve 1.9-ről 3.5 fokra, hogy ne ragadjon be!
+    const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 1.0 && Math.abs(utolsoGyorsulasZ) <= 1.0;
+    const vanDőléshullámTüske = Math.abs(szogValtozas) > 3.5;
 
     if (vanFüggőlegesRázkódás || vanDőléshullámTüske) {
         if (most - utolsoLepesIdo > 180) {
@@ -154,11 +156,9 @@ function detectLepes(jelenlegiDz, szogValtozas) {
             utolsoLepesIdo = most;
             utolsoMozgasIdo = most;
 
-            // Időköz mentése a ritmushoz
             lepesIdokozok.push(idokoz);
             if (lepesIdokozok.length > 3) lepesIdokozok.shift();
 
-            // 🔥 ÚJ: Az aktuális függőleges becsapódás abszolút értékének mentése az erőhöz
             lepesErok.push(Math.abs(jelenlegiDz));
             if (lepesErok.length > 3) lepesErok.shift();
         }
@@ -184,25 +184,25 @@ function feldolgoz() {
 
     const dz = az - raz;
 
-    // Lépések gyűjtése (V7.2.3)
+    // Lépések gyűjtése
     detectLepes(dz, szogValtozas);
 
     // 1. LÉPÉSRITMUS ÉS 4-ÁLLAPOTÚ SEBESSÉG KIÉRTÉKELÉSE
     let aktualisSebesseg = "STOP";
     let atlagEro = 0;
 
-    if (most - utolsoMozgasIdo < 950 && lepesIdokozok.length > 0) {
+    // Megállás észlelése finomítva 750ms-ra a tiszta ALAPÁLLAPOTHOZ
+    if (most - utolsoMozgasIdo < 750 && lepesIdokozok.length > 0) {
         const atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
         
-        // Kiszámoljuk az utolsó 3 lépés átlagos becsapódási erejét
         if (lepesErok.length > 0) {
             atlagEro = lepesErok.reduce((a, b) => a + b, 0) / lepesErok.length;
         }
 
         if (lepesIdokozok.length >= 2) {
             const isFutam = atlagIdokoz < 450;
-            // 🔥 Választóvonal: 1.5 m/s² felett magas térdemelés, alatta sima
-            const isMagasTerd = atlagEro > 1.5; 
+            // 🔥 FIX 3: Választóvonal megemelve 1.5-ről 1.8 m/s²-re az új Járás DZ-hez igazodva!
+            const isMagasTerd = atlagEro > 1.8; 
 
             if (isFutam) {
                 aktualisSebesseg = isMagasTerd ? "MAGAS TÉRD FUTÁS" : "FUTÁS";
@@ -251,7 +251,7 @@ function feldolgoz() {
 
     document.getElementById("allapot").textContent = kijelzendoAllapot;
 
-    // Debug panel frissítve az erő-átlag telemetriával
+    // Debug panel
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
