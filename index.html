@@ -1,10 +1,10 @@
-<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.4.1 === -->
+<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.4.2 === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Heatwave Javított Állapotmotor</title>
+    <title>Heatwave Finomhangolt Állapotmotor</title>
     <style>
         body { 
             font-family: sans-serif; 
@@ -28,7 +28,7 @@
             padding: 20px;
         }
         .version-tag { 
-            color: #00ffcc; 
+            color: #ffeb3b; 
             font-weight: bold; 
             font-size: 14px; 
             position: absolute;
@@ -50,10 +50,10 @@
             font-size: 42px; 
             font-weight: bold; 
             margin: 10px 0; 
-            color: #ffeb3b; 
+            color: #ff5722; 
             text-transform: uppercase;
             letter-spacing: 2px;
-            text-shadow: 0 0 15px rgba(255, 235, 59, 0.5);
+            text-shadow: 0 0 15px rgba(255, 87, 34, 0.5);
             text-align: center;
         }
         #live-turn {
@@ -99,22 +99,22 @@
 <body>
 
     <div class="container">
-        <!-- FRISSÍTETT VERZIÓSZÁM KIJELZÉS -->
-        <div class="version-tag">VERZIÓ: v2.4.1 - REVERSED PHYSICAL ENGINE</div>
+        <!-- ÚJ FINOMHANGOLT VERZIÓSZÁM -->
+        <div class="version-tag">VERZIÓ: v2.4.2 - FINE TUNED LOGIC</div>
         
         <button id="startBtn">▶ MOTOR INDÍTÁSA</button>
 
         <div id="live-state">KÉSZEN ÁLL</div>
         <div id="live-turn">KÖZÉP</div>
         
-        <div id="debug-vals">Kalibrációra vár...</div>
+        <div id="debug-vals">Kalibráció indítására vár...</div>
 
         <div id="leftBtn" class="ctrl-btn">BAL</div>
         <div id="rightBtn" class="ctrl-btn">JOBB</div>
     </div>
 <!-- === 1. RÉSZ VÉGE === -->
 
-<!-- === 2. RÉSZ KEZDETE: ÁTHANGOLT FELISMERŐ LOGIKA === -->
+<!-- === 2. RÉSZ KEZDETE: FINOMHANGOLT DÖNTÉSI MÁTRIX === -->
     <script>
         let isRecording = false;
 
@@ -132,21 +132,19 @@
         rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); rightBtn.classList.add('active'); });
         rightBtn.addEventListener('touchend', () => { rightBtn.classList.remove('active'); });
 
-        // KALIBRÁCIÓS ALAPÉRTÉKEK (Az első 2 másodperc átlaga alapján frissülnek)
+        // KALIBRÁCIÓS ALAPÉRTÉKEK
         let baseBeta = null;
         let baseAlpha = null;
         let calLogsCount = 0;
 
-        // PUFFEREK AZ ADATSIMÍTÁSHOZ (Low-Pass Filter)
+        // PUFFEREK AZ ADATSIMÍTÁSHOZ (A séta és futás megnyugtatására)
         const BUFFER_SIZE = 15;
         let magBuffer = [];
-        let yBuffer = [];
 
         // IDŐABLAKOS UGRÁSSZŰRŐ VÁLTOZÓK
         let airTimeStart = 0;
         let jumpDetectedUntil = 0;
 
-        // Tiszta hangvezérlés
         function speak(text) {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel(); 
@@ -162,7 +160,7 @@
         function processSensors(rawX, rawY, rawZ, rawMag, currentAlpha, currentBeta) {
             if (!isRecording) return;
 
-            // 1. Kalibrálás az indítás utáni első 50 mérési pontból
+            // 1. Kalibrálás az indítás utáni első 50 pontból
             if (baseBeta === null && calLogsCount < 50) {
                 if (currentBeta !== null) {
                     baseBeta = (baseBeta || 0) + currentBeta;
@@ -177,48 +175,47 @@
                 return;
             }
 
-            // 2. Adatsimító puffer
+            // 2. Séta és futás adatok betolása a simító pufferbe
             magBuffer.push(rawMag); if (magBuffer.length > BUFFER_SIZE) magBuffer.shift();
-            yBuffer.push(rawY);     if (yBuffer.length > BUFFER_SIZE) yBuffer.shift();
-
             if (magBuffer.length < BUFFER_SIZE) return;
 
             const mag = magBuffer.reduce((a, b) => a + b, 0) / magBuffer.length;
-            const y = yBuffer.reduce((a, b) => a + b, 0) / yBuffer.length;
 
             const now = performance.now();
             let state = "ÁLL";
             let turn = "KÖZÉP";
 
-            // 3. JAVÍTOTT FORDULÁS DETEKTÁLÁSA (Megfordított szorzóval és finomított fokhatárral!)
-            let alphaDiff = (currentAlpha - baseAlpha) * -1; // Megfordítva!
+            // 3. FORDULÁS DETEKTÁLÁSA (30 fokos golyóálló holtzónával!)
+            let alphaDiff = currentAlpha - baseAlpha;
             if (alphaDiff > 180) alphaDiff -= 360;
             if (alphaDiff < -180) alphaDiff += 360;
 
-            if (alphaDiff > 15.0) turn = "FORDULÁS JOBBRA";
-            else if (alphaDiff < -15.0) turn = "FORDULÁS BALRA";
+            if (alphaDiff > 30.0) turn = "FORDULÁS BALRA";       
+            else if (alphaDiff < -30.0) turn = "FORDULÁS JOBBRA"; 
+            else turn = "KÖZÉP"; // Fixen visszaáll, ha 30 fokon belül vagy
 
-            // 4. JAVÍTOTT GUGGOLÁS DETEKTÁLÁSA (Megfordított szorzóval, így a helyes tartáshoz igazodik!)
-            const betaDiff = (currentBeta - baseBeta) * -1; // Megfordítva!
+            // 4. GUGGOLÁS DETEKTÁLÁSA (Áthangolva a felfelé dőlő képernyőhöz!)
+            const betaDiff = currentBeta - baseBeta;
 
-            // 5. UGRÁS SZŰRŐ (Súlytalanság és csapás láncolata)
+            // 5. UGRÁS SZŰRŐ (Puffer nélkül, nyers adatokból, azonnali reakcióval)
             if (rawMag < 0.6) {
                 if (airTimeStart === 0) airTimeStart = now;
             } else {
-                if (airTimeStart > 0 && rawMag > 3.8 && (now - airTimeStart) > 70) {
-                    jumpDetectedUntil = now + 500; // 500 ms-ig tartjuk a felugrást
+                // Ha volt súlytalanság, és utána hirtelen becsapódás érkezik
+                if (airTimeStart > 0 && rawMag > 3.8 && (now - airTimeStart) > 60) {
+                    jumpDetectedUntil = now + 600; // 600 ms-ig tartjuk a felugrást a kijelzőn
                 }
                 airTimeStart = 0;
             }
 
-            // 6. FŐ ÁLLAPOTGÉP PRIORITÁSI SORRENDBEN (Finomított, kényelmesebb HIIT határértékekkel!)
+            // 6. FŐ ÁLLAPOTGÉP PRIORITÁSI SORRENDBEN
             if (now < jumpDetectedUntil) {
                 state = "FELUGROTT!";
-            } else if (betaDiff > 10.0) { // Biztonságos, stabil guggolási határ dőlés alapján
+            } else if (betaDiff < -10.0) { // Felfelé dőlés jelzi a guggolást a te kéztartásod szerint
                 state = "LE VAN GUGGOLVA";
-            } else if (mag > 2.0) {      // Finomított futási küszöb, nem kell belehalni
+            } else if (mag > 2.0) {      
                 state = "FUT";
-            } else if (mag > 0.7) {      // Könnyebb séta érzékelés
+            } else if (mag > 0.7) {      
                 state = "SÉTÁL";
             }
 
@@ -229,7 +226,7 @@
         }
 <!-- === 2. RÉSZ VÉGE === -->
 
-<!-- === 3. RÉSZ KEZDETE: SZOFTVERES ESZKÖZÖK ÉS SENSORS AKTIVÁLÁSA v2.4.1 === -->
+<!-- === 3. RÉSZ KEZDETE: SZOFTVERES ESZKÖZÖK ÉS SENSORS AKTIVÁLÁSA v2.4.2 === -->
         // Globális változók a giroszkóp szögeinek átmeneti tárolására
         let latestAlpha = 0;
         let latestBeta = 0;
@@ -262,7 +259,7 @@
                 return;
             }
 
-            // Képernyőzár és fekvő mód kényszerítése a kontroller hordozáshoz
+            // Képernyőzár és fekvő mód kényszerítése
             try {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
@@ -281,17 +278,15 @@
             window.addEventListener('deviceorientation', handleOrientation);
             window.addEventListener('devicemotion', handleMotion);
             
-            speak("Az áthangolt fizikai állapot motor elindult. Tartsd a telefont két kézzel magad előtt!");
+            speak("A finomhangolt motor elindult. Tartsd mozdulatlanul a kalibráláshoz!");
         });
 
-        // Giroszkóp adatok beolvasása (Guggolás és Fordulás szögei)
         function handleOrientation(event) {
             if (!isRecording) return;
             if (event.alpha !== null) latestAlpha = event.alpha;
             if (event.beta !== null) latestBeta = event.beta;
         }
 
-        // Gyorsulásmérő adatok beolvasása (Séta és Futás rázkódásai)
         function handleMotion(event) {
             if (!isRecording) return;
 
@@ -302,10 +297,9 @@
             const y = acc.y;
             const z = acc.z;
             
-            // Abszolút elmozdulás ereje (vektorhossz)
+            // Abszolút elmozdulás ereje
             const magnitude = Math.sqrt(x*x + y*y + z*z);
 
-            // Összevont adatok átadása a stabilizált állapotgépnek
             processSensors(x, y, z, magnitude, latestAlpha, latestBeta);
         }
     </script>
