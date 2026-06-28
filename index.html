@@ -2,282 +2,228 @@
 <html lang="hu">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Heatwave Absolute Brick Engine v3</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Controller API Debug v1</title>
 
 <style>
 body {
+    margin: 0;
     font-family: sans-serif;
     background: #111;
     color: #fff;
-    margin: 0;
-    overflow: hidden;
-    user-select: none;
 }
 
-.container {
-    width: 100vw;
-    height: 100vh;
+.wrap {
     display: flex;
     flex-direction: column;
-    justify-content: center;
     align-items: center;
-    position: relative;
+    justify-content: center;
+    height: 100vh;
+    gap: 15px;
 }
 
-.version {
-    position: absolute;
-    top: 10px;
-    color: #00ffcc;
+#state {
+    font-size: 28px;
     font-weight: bold;
-}
-
-#startBtn {
-    padding: 20px 40px;
-    font-size: 22px;
-    background: #ff5722;
-    border: none;
-    color: white;
-    border-radius: 10px;
-}
-
-.ctrl {
-    position: absolute;
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    border: 3px solid #666;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    top: 50%;
-    transform: translateY(-50%);
-}
-
-#leftBtn { left: 30px; }
-#rightBtn { right: 30px; }
-
-.ctrl.active {
-    border-color: #00ffcc;
     color: #00ffcc;
+}
+
+#panel {
+    font-family: monospace;
+    white-space: pre;
+    background: #000;
+    padding: 15px;
+    border-radius: 8px;
+    width: 80%;
+    max-width: 400px;
 }
 </style>
 </head>
 
 <body>
 
-<div class="container">
+<div class="wrap">
 
-<div class="version">v3 - MODULAR ENGINE</div>
+    <button id="startBtn">Szenzor indítása</button>
 
-<button id="startBtn">INDÍTÁS</button>
+    <div id="state">IDLE</div>
 
-<div id="liveState">KÉSZEN</div>
-<div id="liveZone">ZÓNA: -</div>
-<div id="liveTurn">IRÁNY: -</div>
-<div id="debug">DEBUG</div>
-
-<div id="leftBtn" class="ctrl">BAL</div>
-<div id="rightBtn" class="ctrl">JOBB</div>
+    <div id="panel">WAITING FOR SENSOR...</div>
 
 </div>
 
 <script>
-/* =========================================================
-   🧠 ABSOLUTE BRICK ENGINE v3
-   MODULÁRIS FELÉPÍTÉS
-========================================================= */
 
 /* =========================
-   1. SYSTEM STATE
+   SENSOR BASE
 ========================= */
-let isRunning = false;
-let systemState = "IDLE";
+let running = false;
 
-/* =========================
-   2. UI REFS
-========================= */
-const startBtn = document.getElementById("startBtn");
-const liveState = document.getElementById("liveState");
-const liveZone = document.getElementById("liveZone");
-const liveTurn = document.getElementById("liveTurn");
-const debug = document.getElementById("debug");
+let alpha = 0, beta = 0, gamma = 0;
 
-/* =========================
-   3. SENSOR BASELINE (kalibráció)
-========================= */
 let baseBeta = null;
 let baseGamma = null;
-let baseAlpha = null;
 let calCount = 0;
 
 /* =========================
-   4. SENSOR INPUT VALUES
+   CONTROLLER API
 ========================= */
-let alpha = 0, beta = 0, gamma = 0;
+const Controller = (() => {
+
+    let state = {
+        mode: "idle",
+        move: 0,
+        turn: 0
+    };
+
+    return {
+        set: (s) => state = s,
+        get: () => state
+    };
+
+})();
 
 /* =========================
-   5. SENSOR FLAGS
+   UI
 ========================= */
-let sensorAlive = false;
-let lastSensorTime = 0;
+const stateEl = document.getElementById("state");
+const panel = document.getElementById("panel");
+const startBtn = document.getElementById("startBtn");
 
 /* =========================
-   6. MOTION BUFFER (stabilizálás)
+   PERMISSION
 ========================= */
-let magBuffer = [];
-const BUFFER_SIZE = 10;
-
-/* =========================================================
-   7. PERMISSION (iOS SAFE)
-========================================================= */
 async function requestPermissions() {
+
     try {
+
         if (DeviceMotionEvent?.requestPermission) {
             const r = await DeviceMotionEvent.requestPermission();
             if (r !== "granted") return false;
         }
+
         if (DeviceOrientationEvent?.requestPermission) {
             const r = await DeviceOrientationEvent.requestPermission();
             if (r !== "granted") return false;
         }
+
         return true;
-    } catch (e) {
+
+    } catch {
         return false;
     }
 }
 
-/* =========================================================
-   8. START
-========================================================= */
+/* =========================
+   START
+========================= */
 startBtn.onclick = async () => {
-
-    startBtn.disabled = true;
-    systemState = "STARTING";
-    liveState.textContent = "INDÍTÁS...";
 
     const ok = await requestPermissions();
 
     if (!ok) {
-        liveState.textContent = "NINCS ENGEDÉLY";
-        startBtn.disabled = false;
+        stateEl.textContent = "NO PERMISSION";
         return;
     }
 
-    window.addEventListener("deviceorientation", onOrientation);
-    window.addEventListener("devicemotion", onMotion);
+    window.addEventListener("deviceorientation", onOri);
+    window.addEventListener("devicemotion", onMot);
 
-    isRunning = true;
-    systemState = "CALIBRATING";
+    running = true;
 
-    liveState.textContent = "KALIBRÁLÁS...";
+    stateEl.textContent = "RUNNING";
 };
 
-/* =========================================================
-   9. ORIENTATION HANDLER
-========================================================= */
-function onOrientation(e) {
-    if (!isRunning) return;
+/* =========================
+   SENSOR HANDLERS
+========================= */
+function onOri(e) {
+
+    if (!running) return;
 
     alpha = e.alpha || 0;
     beta = e.beta || 0;
     gamma = e.gamma || 0;
-
-    sensorAlive = true;
-    lastSensorTime = performance.now();
 }
 
-/* =========================================================
-   10. MOTION HANDLER
-========================================================= */
-function onMotion(e) {
-    if (!isRunning) return;
+function onMot(e) {
+
+    if (!running) return;
 
     const a = e.acceleration || {};
-    let mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
-
-    sensorAlive = true;
-    lastSensorTime = performance.now();
+    const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
 
     process(mag, alpha, beta, gamma);
 }
 
-/* =========================================================
-   11. CORE PROCESSOR (CSERÉLHETŐ RÉSZ!)
-========================================================= */
+/* =========================
+   CORE LOGIC (GAME OUTPUT)
+========================= */
 function process(mag, a, b, g) {
 
-    /* ---------- CALIBRATION ---------- */
-    if (baseBeta === null && calCount < 50) {
-        baseAlpha += a;
-        baseBeta += b;
-        baseGamma += g;
+    /* --- CALIBRATION --- */
+    if (baseBeta === null && calCount < 30) {
+
+        baseBeta = (baseBeta || 0) + b;
+        baseGamma = (baseGamma || 0) + g;
+
         calCount++;
 
-        if (calCount === 50) {
-            baseAlpha /= 50;
-            baseBeta /= 50;
-            baseGamma /= 50;
+        if (calCount === 30) {
+            baseBeta /= 30;
+            baseGamma /= 30;
         }
 
-        liveState.textContent = "KALIBRÁLÁS...";
+        stateEl.textContent = "CALIBRATING";
         return;
     }
 
-    /* ---------- RELATIVE VALUES ---------- */
     const dTilt = g - baseGamma;
     const dCrouch = b - baseBeta;
 
-    let state = "ÁLL";
-    let zone = "ALAP";
-    let turn = "KÖZÉP";
+    /* --- MODE --- */
+    let mode = "stand";
 
-    /* ---------- LOGIC ZONES ---------- */
-    if (dCrouch < -25) {
-        zone = "GUGGOLÁS";
-        state = "LE GUGGOLVA";
+    if (dCrouch < -25) mode = "crouch";
+    else if (Math.abs(dTilt) > 30) mode = "tilt";
+
+    /* --- OUTPUT --- */
+    let move = 0;
+    let turn = 0;
+
+    if (mode === "stand") {
+
+        if (Math.abs(dTilt) > 25) {
+            turn = Math.max(-1, Math.min(1, dTilt / 60));
+        }
+
+        if (mag > 2) move = 1;
+        else if (mag > 0.7) move = 0.5;
     }
 
-    else if (dTilt > 30) {
-        zone = "JOBB DŐLÉS";
-        state = "JOBBRA DŐL";
-    }
+    const output = {
+        mode,
+        move,
+        turn
+    };
 
-    else if (dTilt < -30) {
-        zone = "BAL DŐLÉS";
-        state = "BALRA DŐL";
-    }
+    Controller.set(output);
 
-    else {
-        if (mag > 2.0) state = "FUT";
-        else if (mag > 0.7) state = "SÉTA";
-    }
+    /* --- UI --- */
+    const s = Controller.get();
 
-    /* ---------- UI ---------- */
-    liveState.textContent = state;
-    liveZone.textContent = "ZÓNA: " + zone;
-    liveTurn.textContent = "IRÁNY: " + turn;
+    stateEl.textContent = s.mode.toUpperCase();
 
-    debug.textContent =
-        `mag=${mag.toFixed(2)} dT=${dTilt.toFixed(1)} dC=${dCrouch.toFixed(1)}`;
+    panel.textContent =
+        "MODE: " + s.mode + "\n" +
+        "MOVE: " + s.move.toFixed(2) + "\n" +
+        "TURN: " + s.turn.toFixed(2) + "\n\n" +
+        "dTilt: " + dTilt.toFixed(1) + "\n" +
+        "dCrouch: " + dCrouch.toFixed(1) + "\n" +
+        "MAG: " + mag.toFixed(2);
 
-    systemState = "RUNNING";
 }
 
-/* =========================================================
-   12. SAFETY WATCHDOG
-========================================================= */
-setInterval(() => {
-    if (!isRunning) return;
-
-    if (performance.now() - lastSensorTime > 3000) {
-        liveState.textContent = "SZENZOR STOP";
-    }
-}, 2000);
-
-/* =========================================================
-   END
-========================================================= */
 </script>
 
 </body>
