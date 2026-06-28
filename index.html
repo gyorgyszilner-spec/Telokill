@@ -89,13 +89,15 @@
 <!-- === 2. RÉSZ VÉGE === -->
 
 
-<!-- === 3. RÉSZ KEZDETE: SZENZOROK, IDŐZÍTŐ ÉS CSV MENTÉS === -->
+ // --- 3. RÉSZ KEZDETE: SZENZOROK, IDŐZÍTŐ ÉS BIZTONSÁGOS KÉZI MENTÉS ---
+
+        // iOS 13+ engedélykérő ablak kezelése
         async function requestPermission() {
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                 const response = await DeviceMotionEvent.requestPermission();
                 return response === 'granted';
             }
-            return true;
+            return true; // Android vagy régebbi rendszerek
         }
 
         startBtn.addEventListener('click', async () => {
@@ -105,6 +107,7 @@
                 return;
             }
 
+            // Képernyőzár aktiválása fekvő módba a fix belső tengelyekért
             try {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
@@ -124,6 +127,7 @@
 
             window.addEventListener('devicemotion', handleMotion);
             
+            // 5 másodperces felkészülés a zsebbe tételre
             startCountdown(5, "Tedd a telefont a zsebedbe!", () => {
                 runNextExercise();
             });
@@ -174,7 +178,7 @@
                 } else {
                     timerDiv.textContent = timeLeft;
                     if (timeLeft <= 3) {
-                        speak(timeLeft.toString());
+                        speak(timeLeft.toString()); // Utolsó 3 mp visszaszámlálása
                     }
                 }
             }, 1000);
@@ -208,10 +212,18 @@
             
             instructionDiv.textContent = "Kalibráció Kész!";
             timerDiv.textContent = "✔";
-            statusDiv.textContent = "Fájl letöltése...";
+            statusDiv.textContent = "Kattints a mentés gombra!";
             speak("Gratulálok, a kalibráció befejeződött. Mentsd el a fájlt!");
 
-            downloadCSV();
+            // Átalakítjuk az indító gombot egy nagy zöld letöltő gombbá, amit a telefon nem tud blokkolni
+            startBtn.style.display = 'block';
+            startBtn.style.background = '#4caf50';
+            startBtn.textContent = "⬇ CSV FÁJL LETÖLTÉSE";
+            
+            // Új eseménykezelőt adunk neki a letöltéshez
+            startBtn.onclick = function() {
+                downloadCSV();
+            };
         }
 
         function downloadCSV() {
@@ -232,11 +244,9 @@
             link.click();
             document.body.removeChild(link);
             
-            statusDiv.textContent = "Mentve! Küldd el az adatokat elemzésre.";
-            startBtn.style.display = 'block';
-            startBtn.textContent = "▶ Újraindítás";
+            statusDiv.textContent = "Fájl letöltve! Másold be az adatokat.";
         }
     </script>
 </body>
 </html>
-<!-- === 3. RÉSZ VÉGE === -->
+// --- 3. RÉSZ VÉGE ---
