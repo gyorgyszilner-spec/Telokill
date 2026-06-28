@@ -1,4 +1,4 @@
-<!-- === 1. RÉSZ KEZDETE: HTML, CSS ÉS VERZIÓSZÁM v1.0.5 === -->
+<!-- === 1. RÉSZ KEZDETE: HTML, CSS ÉS VERZIÓSZÁM v1.1.0 === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -8,7 +8,7 @@
     <style>
         body { font-family: sans-serif; background: #111; color: #fff; padding: 20px; text-align: center; margin: 0; }
         .container { max-width: 500px; margin: 0 auto; padding-top: 3vh; }
-        .version-tag { color: #00ffcc; font-weight: bold; font-size: 14px; margin-bottom: 20px; letter-spacing: 1px; }
+        .version-tag { color: #00ff00; font-weight: bold; font-size: 14px; margin-bottom: 20px; letter-spacing: 1px; }
         button { background: #ff5722; color: white; border: none; padding: 20px 40px; font-size: 22px; margin: 20px auto; border-radius: 8px; cursor: pointer; display: block; width: 85%; font-weight: bold; }
         #instruction { font-size: 32px; font-weight: bold; margin: 30px 0; color: #ffeb3b; min-height: 80px; padding: 0 10px; }
         #timer { font-size: 64px; font-weight: bold; color: #e91e63; margin: 20px 0; }
@@ -21,10 +21,10 @@
 
     <div class="container">
         <!-- ÚJ VERZIÓSZÁM KIJELZÉS -->
-        <div class="version-tag">VERZIÓ: v1.0.5 - AUDIO PROXIMITY SHIELD</div>
+        <div class="version-tag">VERZIÓ: v1.1.0 - MIRRORING READY</div>
         
         <h1>Heatwave Kalibráció</h1>
-        <p>A program végigvezet az összes mozgásformán (10-10 mp). Készülj fel, indítás után tedd a telefont a zsebedbe!</p>
+        <p>Tükrözd a TV-re, indítsd el a tesztet, majd tedd a telefont a zsebedbe!</p>
 
         <button id="startBtn">▶ TESZT INDÍTÁSA</button>
 
@@ -40,7 +40,7 @@
 <!-- === 1. RÉSZ VÉGE === -->
 
 
-<!-- === 2. RÉSZ KEZDETE: GYAKORLATOK ÉS HÁTTÉR AUDIO LOGIKA === -->
+<!-- === 2. RÉSZ KEZDETE: GYAKORLATOK ÉS HANG LOGIKA === -->
     <script>
         const exercises = [
             { id: "Seta_helyben", name: "Séta helyben (Kényelmesen)" },
@@ -60,9 +60,8 @@
         let sensorLogs = [];
         let isRecording = false;
         let startTimestamp = 0;
+        let exerciseTimer = null;
         let currentExerciseId = "Felkeszules";
-        let worker = null;
-        let audioCtx = null;
 
         const startBtn = document.getElementById('startBtn');
         const instructionDiv = document.getElementById('instruction');
@@ -70,23 +69,10 @@
         const statusDiv = document.getElementById('status');
         const progressDiv = document.getElementById('progress');
 
-        // Golyóálló hangvezérlés: ha a TTS elaludna, ez a natív audio csatorna ébren tartja a telefont
+        // Tiszta hangvezérlés a tükrözött módhoz
         function speak(text) {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel(); 
-                
-                // Beindítunk egy néma, natív audio pulzust, mintha zene szólna a háttérben
-                try {
-                    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                    const osc = audioCtx.createOscillator();
-                    const gain = audioCtx.createGain();
-                    gain.gain.value = 0.001; // Szinte teljesen néma szinuszhullám, de a rendszer zenelejátszásnak látja
-                    osc.connect(gain);
-                    gain.connect(audioCtx.destination);
-                    osc.start();
-                    osc.stop(audioCtx.currentTime + 0.5);
-                } catch(e) { console.log(e); }
-
                 setTimeout(() => {
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'hu-HU';
@@ -98,44 +84,14 @@
         }
 <!-- === 2. RÉSZ VÉGE === -->
 
-
-<!-- === 3. RÉSZ KEZDETE: WEB WORKER HÁTTÉRSZÁL, SZENZOROK ÉS MENTÉS === -->
-        // Háttérben futó, altathatatlan időzítő (Web Worker) létrehozása kódból
-        function startBackgroundTimer(duration, onTick, onComplete) {
-            if (worker) worker.terminate();
-
-            // A worker kódja egy virtuális blob fájlként, amit a telefon nem tud hibernálni
-            const workerCode = `
-                let timeLeft = ${duration};
-                setInterval(() => {
-                    timeLeft--;
-                    postMessage({ type: 'tick', timeLeft: timeLeft });
-                    if (timeLeft <= 0) {
-                        postMessage({ type: 'complete' });
-                    }
-                }, 1000);
-            `;
-            
-            const blob = new Blob([workerCode], { type: 'application/javascript' });
-            worker = new Worker(URL.createObjectURL(blob));
-            
-            worker.onmessage = function(e) {
-                if (e.data.type === 'tick') {
-                    onTick(e.data.timeLeft);
-                } else if (e.data.type === 'complete') {
-                    worker.terminate();
-                    worker = null;
-                    onComplete();
-                }
-            };
-        }
-
+<!-- === 3. RÉSZ KEZDETE: SZENZOROK, IDŐZÍTŐ ÉS CSV MENTÉS === -->
+        // iOS 13+ engedélykérő ablak kezelése
         async function requestPermission() {
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                 const response = await DeviceMotionEvent.requestPermission();
                 return response === 'granted';
             }
-            return true;
+            return true; // Android vagy régebbi rendszerek
         }
 
         startBtn.addEventListener('click', async () => {
@@ -145,11 +101,7 @@
                 return;
             }
 
-            // AudioContext inicializálása az első érintésre (böngésző szabályzat miatt)
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            }
-
+            // Tükrözésnél a teljes képernyő és tájolás rögzítése stabilizálja a TV képet
             try {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
@@ -157,7 +109,9 @@
                 if (screen.orientation && screen.orientation.lock) {
                     await screen.orientation.lock('landscape');
                 }
-            } catch(e) { console.log("Képernyőzár nem támogatott."); }
+            } catch(e) { 
+                console.log("Képernyőzár nem támogatott ezen az eszközön."); 
+            }
 
             startBtn.style.display = 'none';
             sensorLogs = [];
@@ -167,16 +121,30 @@
 
             window.addEventListener('devicemotion', handleMotion);
             
-            // 5 mp felkészülés a zsebbe tételre háttérszálon
-            instructionDiv.textContent = "Tedd a telefont a zsebedbe!";
-            speak("Tedd a telefont a zsebedbe!");
-            timerDiv.textContent = "5";
-            
-            startBackgroundTimer(5, 
-                (timeLeft) => { timerDiv.textContent = timeLeft; },
-                () => { runNextExercise(); }
-            );
+            // 5 másodperces felkészülés a zsebbe tételre
+            startCountdown(5, "Tedd a telefont a zsebedbe!", () => {
+                runNextExercise();
+            });
         });
+
+        function startCountdown(seconds, message, onComplete) {
+            currentExerciseId = "Felkeszules";
+            instructionDiv.textContent = message;
+            speak(message);
+            
+            let timeLeft = seconds;
+            timerDiv.textContent = timeLeft;
+
+            const interval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft <= 0) {
+                    clearInterval(interval);
+                    onComplete();
+                } else {
+                    timerDiv.textContent = timeLeft;
+                }
+            }, 1000);
+        }
 
         function runNextExercise() {
             if (currentExerciseIndex >= exercises.length) {
@@ -191,21 +159,23 @@
             progressDiv.style.width = `${((currentExerciseIndex + 1) / exercises.length) * 100}%`;
             
             speak(currentEx.name);
-            timerDiv.textContent = "10";
 
-            // Háttérszál indítása a 10 másodperces gyakorlathoz
-            startBackgroundTimer(10,
-                (timeLeft) => {
-                    timerDiv.textContent = timeLeft;
-                    if (timeLeft <= 3 && timeLeft > 0) {
-                        speak(timeLeft.toString());
-                    }
-                },
-                () => {
+            let timeLeft = 10;
+            timerDiv.textContent = timeLeft;
+
+            exerciseTimer = setInterval(() => {
+                timeLeft--;
+                if (timeLeft <= 0) {
+                    clearInterval(exerciseTimer);
                     currentExerciseIndex++;
                     runNextExercise();
+                } else {
+                    timerDiv.textContent = timeLeft;
+                    if (timeLeft <= 3) {
+                        speak(timeLeft.toString()); // Utolsó 3 mp hangos visszaszámlálása
+                    }
                 }
-            );
+            }, 1000);
         }
 
         function handleMotion(event) {
@@ -233,8 +203,7 @@
         function finishCalibration() {
             isRecording = false;
             window.removeEventListener('devicemotion', handleMotion);
-            if (worker) worker.terminate();
-
+            
             instructionDiv.textContent = "Kalibráció Kész!";
             timerDiv.textContent = "✔";
             statusDiv.textContent = "Kattints a mentés gombra!";
@@ -273,4 +242,3 @@
 </body>
 </html>
 <!-- === 3. RÉSZ VÉGE === -->
-
