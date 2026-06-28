@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Controller API Debug v1</title>
+<title>Controller API Debug v2</title>
 
 <style>
 body {
@@ -35,7 +35,7 @@ body {
     padding: 15px;
     border-radius: 8px;
     width: 80%;
-    max-width: 400px;
+    max-width: 420px;
 }
 </style>
 </head>
@@ -55,7 +55,7 @@ body {
 <script>
 
 /* =========================
-   SENSOR BASE
+   SENSOR STATE
 ========================= */
 let running = false;
 
@@ -64,6 +64,13 @@ let alpha = 0, beta = 0, gamma = 0;
 let baseBeta = null;
 let baseGamma = null;
 let calCount = 0;
+
+/* =========================
+   STEP ENGINE (IMPORTANT)
+========================= */
+let lastMag = 0;
+let stepTimes = [];
+const STEP_WINDOW = 2000;
 
 /* =========================
    CONTROLLER API
@@ -91,7 +98,7 @@ const panel = document.getElementById("panel");
 const startBtn = document.getElementById("startBtn");
 
 /* =========================
-   PERMISSION
+   PERMISSIONS
 ========================= */
 async function requestPermissions() {
 
@@ -130,7 +137,6 @@ startBtn.onclick = async () => {
     window.addEventListener("devicemotion", onMot);
 
     running = true;
-
     stateEl.textContent = "RUNNING";
 };
 
@@ -157,7 +163,40 @@ function onMot(e) {
 }
 
 /* =========================
-   CORE LOGIC (GAME OUTPUT)
+   STEP DETECTOR
+========================= */
+function detectStep(mag) {
+
+    const threshold = 1.1;
+
+    const isPeak = (mag > threshold && lastMag <= threshold);
+
+    lastMag = mag;
+
+    if (isPeak) {
+
+        const now = Date.now();
+        stepTimes.push(now);
+
+        // csak az utolsó 2 mp
+        stepTimes = stepTimes.filter(t => now - t < STEP_WINDOW);
+    }
+}
+
+/* =========================
+   MOVE FROM STEPS
+========================= */
+function getMove() {
+
+    const steps = stepTimes.length;
+
+    if (steps >= 6) return 1;     // FUTÁS
+    if (steps >= 2) return 0.5;   // SÉTA
+    return 0;                     // ÁLL
+}
+
+/* =========================
+   CORE LOGIC
 ========================= */
 function process(mag, a, b, g) {
 
@@ -181,26 +220,26 @@ function process(mag, a, b, g) {
     const dTilt = g - baseGamma;
     const dCrouch = b - baseBeta;
 
-    /* --- MODE --- */
+    /* --- MODE DETECTION --- */
     let mode = "stand";
 
-    if (dCrouch < -25) mode = "crouch";
+    if (dCrouch < -20) mode = "crouch";
     else if (Math.abs(dTilt) > 30) mode = "tilt";
 
-    /* --- OUTPUT --- */
-    let move = 0;
+    /* --- STEP ENGINE --- */
+    detectStep(mag);
+    const move = getMove();
+
+    /* --- TURN LOGIC --- */
     let turn = 0;
 
     if (mode === "stand") {
-
         if (Math.abs(dTilt) > 25) {
             turn = Math.max(-1, Math.min(1, dTilt / 60));
         }
-
-        if (mag > 2) move = 1;
-        else if (mag > 0.7) move = 0.5;
     }
 
+    /* --- OUTPUT --- */
     const output = {
         mode,
         move,
@@ -218,6 +257,7 @@ function process(mag, a, b, g) {
         "MODE: " + s.mode + "\n" +
         "MOVE: " + s.move.toFixed(2) + "\n" +
         "TURN: " + s.turn.toFixed(2) + "\n\n" +
+        "STEPS: " + stepTimes.length + "\n" +
         "dTilt: " + dTilt.toFixed(1) + "\n" +
         "dCrouch: " + dCrouch.toFixed(1) + "\n" +
         "MAG: " + mag.toFixed(2);
