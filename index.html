@@ -233,7 +233,7 @@ function detectLepes(jelenlegiDz, szogValtozas) {
 function feldolgoz() {
     const most = performance.now();
 
-    // Dőlésszög számítása (V7.2.3)
+    // DŐLÉSSZÖG SZÁMÍTÁSA (V7.2.3)
     const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
     const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
     
@@ -251,7 +251,7 @@ function feldolgoz() {
     // Lépések rögzítése
     detectLepes(dz, szogValtozas);
 
-    // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE (A TE MEGNÖVELT JÁRÁSI ABLAKOD)
+    // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE
     let aktualisSebesseg = "STOP";
     let atlagIntenzitas = 0;
 
@@ -263,8 +263,10 @@ function feldolgoz() {
         }
 
         if (lepesIdokozok.length >= 2) {
-            // A te ritmusodhoz igazított tágas járás határ: 380 ms
-            const isFutam = atlagIdokoz < 380;
+            // 🔥 JAVÍTÁS: A futás ritmuskapuját leszűkítettük 380-ról 310 ms alá!
+            // Így a szapora, normál ütemű helybenjárás biztosan megmarad JÁRÁS-nak, 
+            // és csak a tényleges, intenzív sprintelés vált át FUTÁS-ba.
+            const isFutam = atlagIdokoz < 310;
             const isMagasTerd = atlagIntenzitas > 2.10; 
 
             if (isFutam) {
@@ -322,6 +324,8 @@ function feldolgoz() {
         "MOZGÁS STÁTUSZ: " + mozgásÁllapot + "\n\n" +
         "BAL GOMB: " + (balGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n" +
         "JOBB GOMB: " + (jobbGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n\n" +
+        "LÉPÉSRITMUS:       " + atlagIdokoz.toFixed(0) + " ms\n" +
+        " -> SKÁLA: FUTÁS < 310 ms | JÁRÁS > 310 ms\n\n" +
         "KOMBI INTENZITÁS:  " + atlagIntenzitas.toFixed(2) + "\n" +
         "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
         "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
@@ -342,3 +346,4 @@ jGomb.addEventListener("touchend", (e) => { e.preventDefault(); jobbGombLenyomva
 
 </body>
 </html>
+
