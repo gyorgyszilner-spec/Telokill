@@ -1,365 +1,284 @@
-<!-- === 1. RÉSZ KEZDETE: STABIL INDÍTÓ RÉTEG v3 === -->
-<script>
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Heatwave Absolute Brick Engine v3</title>
 
-let isRecording = false;
-
-// UI elemek
-const startBtn = document.getElementById('startBtn');
-const liveStateDiv = document.getElementById('live-state');
-const liveZoneDiv = document.getElementById('live-zone');
-const liveTurnDiv = document.getElementById('live-turn');
-const debugValsDiv = document.getElementById('debug-vals');
-
-// Rendszer állapot
-let systemState = "IDLE";
-let sensorAlive = false;
-let sensorWatchdog = null;
-
-// ==============================
-// 🔊 SPEAK
-// ==============================
-function speak(text) {
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        setTimeout(() => {
-            const u = new SpeechSynthesisUtterance(text);
-            u.lang = 'hu-HU';
-            u.rate = 1.0;
-            window.speechSynthesis.speak(u);
-        }, 50);
-    }
+<style>
+body {
+    font-family: sans-serif;
+    background: #111;
+    color: #fff;
+    margin: 0;
+    overflow: hidden;
+    user-select: none;
 }
 
-// ==============================
-// 📡 PERMISSION (iOS SAFE)
-// ==============================
+.container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+
+.version {
+    position: absolute;
+    top: 10px;
+    color: #00ffcc;
+    font-weight: bold;
+}
+
+#startBtn {
+    padding: 20px 40px;
+    font-size: 22px;
+    background: #ff5722;
+    border: none;
+    color: white;
+    border-radius: 10px;
+}
+
+.ctrl {
+    position: absolute;
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    border: 3px solid #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+#leftBtn { left: 30px; }
+#rightBtn { right: 30px; }
+
+.ctrl.active {
+    border-color: #00ffcc;
+    color: #00ffcc;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="version">v3 - MODULAR ENGINE</div>
+
+<button id="startBtn">INDÍTÁS</button>
+
+<div id="liveState">KÉSZEN</div>
+<div id="liveZone">ZÓNA: -</div>
+<div id="liveTurn">IRÁNY: -</div>
+<div id="debug">DEBUG</div>
+
+<div id="leftBtn" class="ctrl">BAL</div>
+<div id="rightBtn" class="ctrl">JOBB</div>
+
+</div>
+
+<script>
+/* =========================================================
+   🧠 ABSOLUTE BRICK ENGINE v3
+   MODULÁRIS FELÉPÍTÉS
+========================================================= */
+
+/* =========================
+   1. SYSTEM STATE
+========================= */
+let isRunning = false;
+let systemState = "IDLE";
+
+/* =========================
+   2. UI REFS
+========================= */
+const startBtn = document.getElementById("startBtn");
+const liveState = document.getElementById("liveState");
+const liveZone = document.getElementById("liveZone");
+const liveTurn = document.getElementById("liveTurn");
+const debug = document.getElementById("debug");
+
+/* =========================
+   3. SENSOR BASELINE (kalibráció)
+========================= */
+let baseBeta = null;
+let baseGamma = null;
+let baseAlpha = null;
+let calCount = 0;
+
+/* =========================
+   4. SENSOR INPUT VALUES
+========================= */
+let alpha = 0, beta = 0, gamma = 0;
+
+/* =========================
+   5. SENSOR FLAGS
+========================= */
+let sensorAlive = false;
+let lastSensorTime = 0;
+
+/* =========================
+   6. MOTION BUFFER (stabilizálás)
+========================= */
+let magBuffer = [];
+const BUFFER_SIZE = 10;
+
+/* =========================================================
+   7. PERMISSION (iOS SAFE)
+========================================================= */
 async function requestPermissions() {
     try {
-        let motionGranted = true;
-        let orientGranted = true;
-
-        if (typeof DeviceMotionEvent !== 'undefined' &&
-            typeof DeviceMotionEvent.requestPermission === 'function') {
-
-            const res = await DeviceMotionEvent.requestPermission();
-            motionGranted = (res === 'granted');
+        if (DeviceMotionEvent?.requestPermission) {
+            const r = await DeviceMotionEvent.requestPermission();
+            if (r !== "granted") return false;
         }
-
-        if (typeof DeviceOrientationEvent !== 'undefined' &&
-            typeof DeviceOrientationEvent.requestPermission === 'function') {
-
-            const res = await DeviceOrientationEvent.requestPermission();
-            orientGranted = (res === 'granted');
+        if (DeviceOrientationEvent?.requestPermission) {
+            const r = await DeviceOrientationEvent.requestPermission();
+            if (r !== "granted") return false;
         }
-
-        return motionGranted && orientGranted;
-
+        return true;
     } catch (e) {
-        console.log("Permission error:", e);
         return false;
     }
 }
 
-// ==============================
-// 🚀 INDÍTÁS
-// ==============================
-startBtn.addEventListener('click', async () => {
-
-    systemState = "STARTING";
+/* =========================================================
+   8. START
+========================================================= */
+startBtn.onclick = async () => {
 
     startBtn.disabled = true;
-    startBtn.textContent = "INDÍTÁS...";
-
-    liveStateDiv.textContent = "INDÍTÁS...";
-    debugValsDiv.textContent = "Szenzor inicializálás...";
-
-    // ⚠️ listener ELŐBB (iOS stabilitás miatt fontos)
-    window.addEventListener('deviceorientation', handleOrientation);
-    window.addEventListener('devicemotion', handleMotion);
+    systemState = "STARTING";
+    liveState.textContent = "INDÍTÁS...";
 
     const ok = await requestPermissions();
 
     if (!ok) {
-        systemState = "ERROR_PERMISSION";
-
-        liveStateDiv.textContent = "SZENZOR MEGTAGADVA";
-        debugValsDiv.textContent = "Permission denied";
-
+        liveState.textContent = "NINCS ENGEDÉLY";
         startBtn.disabled = false;
-        startBtn.textContent = "ÚJRAINDÍTÁS";
         return;
     }
 
-    // fullscreen + landscape (ha lehet)
-    try {
-        if (document.documentElement.requestFullscreen) {
-            await document.documentElement.requestFullscreen();
-        }
-        if (screen.orientation && screen.orientation.lock) {
-            await screen.orientation.lock('landscape');
-        }
-    } catch (e) {
-        console.log("Fullscreen/orientation not supported");
-    }
+    window.addEventListener("deviceorientation", onOrientation);
+    window.addEventListener("devicemotion", onMotion);
 
-    isRecording = true;
+    isRunning = true;
     systemState = "CALIBRATING";
 
-    speak("Rendszer elindult. Kalibrálás folyamatban.");
+    liveState.textContent = "KALIBRÁLÁS...";
+};
 
-    // watchdog: ha nincs szenzor adat
-    sensorWatchdog = setTimeout(() => {
-        if (!sensorAlive) {
-            systemState = "ERROR_NO_SENSOR";
+/* =========================================================
+   9. ORIENTATION HANDLER
+========================================================= */
+function onOrientation(e) {
+    if (!isRunning) return;
 
-            liveStateDiv.textContent = "NINCS SZENZOR ADAT";
-            debugValsDiv.textContent =
-                "Lehetséges ok: HTTPS hiányzik / böngésző tilt / iOS restriction";
-
-            startBtn.disabled = false;
-            startBtn.textContent = "ÚJRAINDÍTÁS";
-        }
-    }, 3000);
-});
-
-<!-- === 1. RÉSZ VÉGE === -->
-
-<!-- === 2. RÉSZ KEZDETE: SZENZOR INPUT STABILIZÁLÁS v3 === -->
-
-// Globális szenzor állapot
-let orientAlpha = 0, orientBeta = 0, orientGamma = 0;
-let sensorAlive = false;
-let lastSensorTime = 0;
-
-// ------------------------------
-// 📐 ORIENTATION (stabilizált)
-// ------------------------------
-function handleOrientation(event) {
-    if (!isRecording) return;
-
-    if (event.alpha !== null && !isNaN(event.alpha)) {
-        orientAlpha = event.alpha;
-    }
-    if (event.beta !== null && !isNaN(event.beta)) {
-        orientBeta = event.beta;
-    }
-    if (event.gamma !== null && !isNaN(event.gamma)) {
-        orientGamma = event.gamma;
-    }
+    alpha = e.alpha || 0;
+    beta = e.beta || 0;
+    gamma = e.gamma || 0;
 
     sensorAlive = true;
     lastSensorTime = performance.now();
 }
 
-// ------------------------------
-// 🏃 MOTION (stabilizált)
-// ------------------------------
-function handleMotion(event) {
-    if (!isRecording) return;
+/* =========================================================
+   10. MOTION HANDLER
+========================================================= */
+function onMotion(e) {
+    if (!isRunning) return;
 
-    const acc = event.acceleration || event.accelerationIncludingGravity;
+    const a = e.acceleration || {};
+    let mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
 
-    let magnitude = 0;
-
-    if (acc &&
-        acc.x !== null && acc.y !== null && acc.z !== null &&
-        !isNaN(acc.x) && !isNaN(acc.y) && !isNaN(acc.z)) {
-
-        magnitude = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
-    }
-
-    const rot = event.rotationRate;
-
-    let rotBeta = 0;
-    let rotGamma = 0;
-
-    if (rot) {
-        rotBeta = rot.beta || 0;
-        rotGamma = rot.gamma || 0;
-    }
-
-    // 🚨 sensor alive jelzés
     sensorAlive = true;
     lastSensorTime = performance.now();
 
-    // watchdog reset
-    if (sensorWatchdog) {
-        clearTimeout(sensorWatchdog);
-        sensorWatchdog = setTimeout(() => {
-            if (!sensorAlive) {
-                systemState = "ERROR_NO_SENSOR";
-                liveStateDiv.textContent = "NINCS SZENZOR ADAT";
-                debugValsDiv.textContent = "Sensor timeout (no motion data)";
-                startBtn.disabled = false;
-                startBtn.textContent = "ÚJRAINDÍTÁS";
-            }
-        }, 3000);
-    }
-
-    // továbbítás a logikai rétegnek
-    processSensors(magnitude, orientAlpha, orientBeta, orientGamma, rotBeta, rotGamma);
+    process(mag, alpha, beta, gamma);
 }
 
-// ------------------------------
-// ⏱ SENSOR HEARTBEAT CHECK
-// ------------------------------
-setInterval(() => {
-    if (!isRecording) return;
+/* =========================================================
+   11. CORE PROCESSOR (CSERÉLHETŐ RÉSZ!)
+========================================================= */
+function process(mag, a, b, g) {
 
-    const now = performance.now();
-
-    if (sensorAlive && (now - lastSensorTime > 2500)) {
-        sensorAlive = false;
-        systemState = "ERROR_SENSOR_STALLED";
-
-        liveStateDiv.textContent = "SZENZOR MEGÁLLT";
-        debugValsDiv.textContent = "No sensor update (stalled stream)";
-
-        startBtn.disabled = false;
-        startBtn.textContent = "ÚJRAINDÍTÁS";
-    }
-}, 2000);
-
-<!-- === 2. RÉSZ VÉGE === -->
-
-<!-- === 3. RÉSZ KEZDETE: MOZGÁS LOGIKA + KALIBRÁCIÓ v3 === -->
-
-// ------------------------------
-// 🧱 KALIBRÁCIÓS ALAPOK
-// ------------------------------
-let baseAlpha = null, baseBeta = null, baseGamma = null;
-let calCount = 0;
-const CAL_MAX = 50;
-
-// ------------------------------
-// 📦 MAG BUFFER (stabilizálás)
-// ------------------------------
-const BUFFER_SIZE = 10;
-let magBuffer = [];
-
-// ------------------------------
-// 🧠 FŐ PROCESSZOR
-// ------------------------------
-function processSensors(rawMag, alpha, beta, gamma, rotBeta, rotGamma) {
-
-    if (!isRecording) return;
-
-    // ==========================
-    // 1. KALIBRÁCIÓ
-    // ==========================
-    if (baseBeta === null && calCount < CAL_MAX) {
-
-        baseAlpha = (baseAlpha || 0) + alpha;
-        baseBeta = (baseBeta || 0) + beta;
-        baseGamma = (baseGamma || 0) + gamma;
-
+    /* ---------- CALIBRATION ---------- */
+    if (baseBeta === null && calCount < 50) {
+        baseAlpha += a;
+        baseBeta += b;
+        baseGamma += g;
         calCount++;
 
-        liveStateDiv.textContent = "KALIBRÁLÁS...";
-
-        if (calCount === CAL_MAX) {
-            baseAlpha /= CAL_MAX;
-            baseBeta /= CAL_MAX;
-            baseGamma /= CAL_MAX;
+        if (calCount === 50) {
+            baseAlpha /= 50;
+            baseBeta /= 50;
+            baseGamma /= 50;
         }
 
+        liveState.textContent = "KALIBRÁLÁS...";
         return;
     }
 
-    // ==========================
-    // 2. MAGNITÚDUS SIMÍTÁS
-    // ==========================
-    magBuffer.push(rawMag);
+    /* ---------- RELATIVE VALUES ---------- */
+    const dTilt = g - baseGamma;
+    const dCrouch = b - baseBeta;
 
-    if (magBuffer.length > BUFFER_SIZE) {
-        magBuffer.shift();
-    }
-
-    const mag =
-        magBuffer.reduce((a, b) => a + b, 0) / magBuffer.length;
-
-    // ==========================
-    // 3. RELATÍV SZÖGEK
-    // ==========================
-    const relativeTilt = gamma - baseGamma;
-    const relativeCrouch = beta - baseBeta;
-
-    let zone = "ALAP";
     let state = "ÁLL";
+    let zone = "ALAP";
     let turn = "KÖZÉP";
 
-    // ==========================
-    // 4. GUGGOLÁS
-    // ==========================
-    if (relativeCrouch < -25) {
+    /* ---------- LOGIC ZONES ---------- */
+    if (dCrouch < -25) {
         zone = "GUGGOLÁS";
         state = "LE GUGGOLVA";
     }
 
-    // ==========================
-    // 5. TÖRZSDÖNTÉS
-    // ==========================
-    else if (relativeTilt > 30) {
+    else if (dTilt > 30) {
         zone = "JOBB DŐLÉS";
-        state = "SZLALOM JOBBRA";
-        turn = "JOBB";
+        state = "JOBBRA DŐL";
     }
 
-    else if (relativeTilt < -30) {
+    else if (dTilt < -30) {
         zone = "BAL DŐLÉS";
-        state = "SZLALOM BALRA";
-        turn = "BAL";
+        state = "BALRA DŐL";
     }
 
-    // ==========================
-    // 6. ALAPÁLLÁS (MOZGÁS LOGIKA)
-    // ==========================
     else {
-
-        if (rotBeta > 55 || rotGamma > 55) {
-            state = "FORDULÁS JOBBRA";
-            turn = "JOBB FORDULÁS";
-        }
-
-        else if (rotBeta < -55 || rotGamma < -55) {
-            state = "FORDULÁS BALRA";
-            turn = "BAL FORDULÁS";
-        }
-
-        else {
-            if (mag > 2.0) {
-                state = "FUT";
-            }
-            else if (mag > 0.7) {
-                state = "SÉTA";
-            }
-            else {
-                state = "ÁLL";
-            }
-        }
+        if (mag > 2.0) state = "FUT";
+        else if (mag > 0.7) state = "SÉTA";
     }
 
-    // ==========================
-    // 7. UGRÁS DETEKT
-    // ==========================
-    if (mag > 4.0) {
-        state = "UGRÁS";
-    }
+    /* ---------- UI ---------- */
+    liveState.textContent = state;
+    liveZone.textContent = "ZÓNA: " + zone;
+    liveTurn.textContent = "IRÁNY: " + turn;
 
-    // ==========================
-    // 8. UI FRISSÍTÉS
-    // ==========================
-    liveZoneDiv.textContent = "ZÓNA: " + zone;
-    liveStateDiv.textContent = state;
-    liveTurnDiv.textContent = turn;
-
-    debugValsDiv.textContent =
-        `MAG: ${mag.toFixed(2)} | ` +
-        `dCrouch: ${relativeCrouch.toFixed(1)} | ` +
-        `dTilt: ${relativeTilt.toFixed(1)}`;
+    debug.textContent =
+        `mag=${mag.toFixed(2)} dT=${dTilt.toFixed(1)} dC=${dCrouch.toFixed(1)}`;
 
     systemState = "RUNNING";
 }
 
-<!-- === 3. RÉSZ VÉGE === -->
+/* =========================================================
+   12. SAFETY WATCHDOG
+========================================================= */
+setInterval(() => {
+    if (!isRunning) return;
 
+    if (performance.now() - lastSensorTime > 3000) {
+        liveState.textContent = "SZENZOR STOP";
+    }
+}, 2000);
+
+/* =========================================================
+   END
+========================================================= */
+</script>
+
+</body>
+</html>
