@@ -1,10 +1,10 @@
-<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.1.0 === -->
+<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.2.0 === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Heatwave Kétkezes Kalibráció</title>
+    <title>Heatwave Kétkezes Mozgásmotor</title>
     <style>
         body { 
             font-family: sans-serif; 
@@ -28,7 +28,7 @@
             padding: 20px;
         }
         .version-tag { 
-            color: #ff9800; 
+            color: #00ffcc; 
             font-weight: bold; 
             font-size: 14px; 
             position: absolute;
@@ -46,47 +46,27 @@
             font-weight: bold; 
             z-index: 10;
         }
-        #instruction { 
-            font-size: 26px; 
+        #live-gesture { 
+            font-size: 32px; 
             font-weight: bold; 
             margin: 15px 0; 
             color: #ffeb3b; 
-            max-width: 50%;
-            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(255, 235, 59, 0.4);
         }
-        #timer { 
-            font-size: 72px; 
-            font-weight: bold; 
-            color: #e91e63; 
-            margin: 10px 0; 
+        #debug-vals { 
+            font-size: 14px; 
+            font-family: monospace;
+            color: #888; 
+            margin-top: 10px;
         }
-        #status { 
-            font-size: 16px; 
-            color: #aaa; 
-            position: absolute;
-            bottom: 15px;
-        }
-        .progress-bar { 
-            background: #333; 
-            height: 8px; 
-            border-radius: 4px; 
-            width: 40%; 
-            margin-top: 10px; 
-            overflow: hidden; 
-        }
-        #progress { 
-            background: #4caf50; 
-            height: 100%; 
-            width: 0%; 
-            transition: width 0.3s; 
-        }
-
-        /* VIRTUÁLIS KONTROLLER GOMBOK (Áttetsző körvonalak) */
+        /* Kontroller gombok körvonalai a hüvelykujjaknak */
         .ctrl-btn {
             position: absolute;
-            width: 90px;
-            height: 90px;
-            border: 4px solid rgba(255, 255, 255, 0.4);
+            width: 95px;
+            height: 95px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
             top: 50%;
             transform: translateY(-50%);
@@ -95,53 +75,42 @@
             align-items: center;
             font-weight: bold;
             font-size: 16px;
-            color: rgba(255, 255, 255, 0.5);
-            background: rgba(255, 255, 255, 0.05);
-            transition: all 0.1s ease;
+            color: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.03);
+            pointer-events: auto;
         }
-        /* Bal gomb elhelyezése */
-        #leftBtn { left: 40px; }
-        /* Jobb gomb elhelyezése */
-        #rightBtn { right: 40px; }
-
-        /* Aktív (megnyomott) állapot vizuális visszajelzése */
+        #leftBtn { left: 45px; }
+        #rightBtn { right: 45px; }
         .ctrl-btn.active {
             border-color: #00ffcc;
             color: #00ffcc;
-            background: rgba(0, 255, 204, 0.2);
-            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
+            background: rgba(0, 255, 204, 0.15);
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.3);
         }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <div class="version-tag">VERZIÓ: v2.1.0 - TWIN BUTTON CONTROLLER</div>
+        <!-- PONTOS v2.2.0 VERZIÓSZÁM -->
+        <div class="version-tag">VERZIÓ: v2.2.0 - CORE RECOGNIZER ENGINE</div>
         
-        <button id="startBtn">▶ TESZT INDÍTÁSA</button>
+        <button id="startBtn">▶ MOTOR INDÍTÁSA</button>
 
-        <div id="instruction">Tartsd a telefont két kézzel magad előtt!</div>
-        <div id="timer">--</div>
+        <div id="live-gesture">KÉSZEN ÁLL</div>
+        
+        <div id="debug-vals">Mag: 0.00 | X: 0.00 | Y: 0.00 | Z: 0.00</div>
 
-        <div class="progress-bar">
-            <div id="progress"></div>
-        </div>
-
-        <div id="status">Állapot: Várakozás</div>
-
-        <!-- A KÉT KÖRVONALÚ GOMB A HÜVELYKUJJAKNAK -->
         <div id="leftBtn" class="ctrl-btn">BAL</div>
         <div id="rightBtn" class="ctrl-btn">JOBB</div>
     </div>
 <!-- === 1. RÉSZ VÉGE === -->
 
-<!-- === 2. RÉSZ KEZDETE: JAVÍTOTT MOZGÁSFELISMERŐ ÉS SZŰRŐ MOTOR === -->
+<!-- === 2. RÉSZ KEZDETE: SAJÁT ADATOKRA HANGOLT DÖNTÉSI MÁTRIX === -->
     <script>
         let isRecording = false;
-        let startTimestamp = 0;
-        let audioCtx = null;
 
-        // Vizuális elemek referenciái
+        // HTML elemek referenciái
         const startBtn = document.getElementById('startBtn');
         const liveGestureDiv = document.getElementById('live-gesture');
         const debugValsDiv = document.getElementById('debug-vals');
@@ -154,15 +123,24 @@
         rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); rightBtn.classList.add('active'); });
         rightBtn.addEventListener('touchend', () => { rightBtn.classList.remove('active'); });
 
-        // Időablakos szűrők a ritmikus mozgásokhoz (Séta, Futás frekvencia méréséhez)
-        let lastPeakTime = 0;
-        let peakIntervals = [];
+        // Tiszta hangvezérlés a kontroller visszajelzéshez
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); 
+                setTimeout(() => {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'hu-HU';
+                    utterance.rate = 1.0;
+                    window.speechSynthesis.speak(utterance);
+                }, 50);
+            }
+        }
 
         // --- A TE SAJÁT SZÁMAID ALAPJÁN BEÁLLÍTOTT KÜSZÖBÉRTÉKEK (Thresholds) ---
         function processMovement(x, y, z, mag) {
             let gesture = "MOZDULATLAN";
 
-            // 1. HARDCORE ROBBANÁSOK: Hárítás vagy Kombinált ugrás
+            // 1. HARDCORE ROBBANÁSOK ÉS ENERGIKUS HIIT AKCIÓK (mag > 5.0)
             if (mag > 5.0) {
                 if (x < -4.0 && z < -1.0) {
                     gesture = "HÁRÍTÁS / PAJZS FEL";
@@ -172,7 +150,7 @@
                     gesture = "ÁTUGROS FUTÁSBÓL";
                 }
             } 
-            // 2. INTENZÍV MOZGÁSOK: Futás vagy Szlalom
+            // 2. INTENZÍV HIIT ELEMEK: Sprint vagy Szlalom (mag > 3.0)
             else if (mag > 3.0) {
                 if (Math.abs(x) > 3.5 && Math.abs(z) > 1.5) {
                     gesture = "FUTÁS KITÉRÉSSEL (SZLALOM)";
@@ -182,7 +160,7 @@
                     gesture = "FUTÁS HELYBEN";
                 }
             } 
-            // 3. KÖZEPES MOZGÁSOK: Séta, Lépcső, Lökés vagy Fordulás
+            // 3. KÖZEPES MOZGÁSOK ÉS AKCIÓ-TRIGGEREK (mag > 1.5)
             else if (mag > 1.5) {
                 if (y < -2.5) {
                     gesture = "MAGAS TÉRD (LÉPCSŐZÉS)";
@@ -196,7 +174,7 @@
                     gesture = "SÉTA HELYBEN";
                 }
             } 
-            // 4. FINOM MOZGÁSOK: Lopakodás / Lábujjhegy
+            // 4. FINOM RETRO MOZGÁSOK (mag > 0.7)
             else if (mag > 0.7) {
                 if (y > 0.8 && Math.abs(x) < 0.5) {
                     gesture = "LOPAKODÁS (VÁDLIEMELÉS)";
@@ -211,8 +189,7 @@
         }
 <!-- === 2. RÉSZ VÉGE === -->
 
-
-<!-- === 3. RÉSZ KEZDETE: SZENZOROK AKTIVÁLÁSA ÉS LEZÁRÁS === -->
+<!-- === 3. RÉSZ KEZDETE: SZENZOROK AKTIVÁLÁSA ÉS LEZÁRÁS v2.2.0 === -->
         // iOS 13+ engedélykérő ablak kezelése
         async function requestPermission() {
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
