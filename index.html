@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v7.3.0</title>
+<title>Fal-Kép Motor v7.3.1</title>
 
 <style>
 body {
@@ -46,13 +46,13 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.3.0</div>
+    <div id="verzio">v7.3.1</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.3.0";
+const VERZIÓ = "v7.3.1";
 let fut = false;
 
 // Nyers és szűrt adatok (V7.2)
@@ -70,7 +70,7 @@ let utolsoLepesIdo = 0;
 let lepesIdokozok = [];
 let utolsoGyorsulasZ = 0;
 let utolsoMozgasIdo = 0;
-let aktualisSebessegSzazalek = 0; // 🔥 0 és 100 közötti folytonos érték
+let aktualisSebessegSzazalek = 0; 
 let mozgásZárolva = false;
 let utolsoSzog = 0;
 
@@ -162,7 +162,7 @@ function detectLepes(jelenlegiDz, szogValtozas) {
 function feldolgoz() {
     const most = performance.now();
 
-    // Dőlésszög számítása a lépésekhez és az eredeti logikához
+    // Dőlésszög számítása
     const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
     const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
     
@@ -181,33 +181,30 @@ function feldolgoz() {
     detectLepes(dz, szogValtozas);
 
     /* =========================================================================
-       FOLYTONOS SEBESSÉGSZÁMÍTÁS (0% - 100%) LÉPÉSRITMUS ALAPJÁN
+       SEBESSÉGSZÁMÍTÁS
        ========================================================================= */
     let nyersSebesseg = 0;
 
     if (most - utolsoMozgasIdo < 950 && lepesIdokozok.length >= 2) {
         const atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
         
-        // Matematikai skálázás: 
-        // - Ha a lépésköz 750ms vagy több (nagyon lassú sántikálás) -> ~10% sebesség
-        // - Ha a lépésköz lecsökken 250ms-ra (extrém gyors helybenfutás) -> 100% sebesség
-        // Képlet: 100% felé tolódik, minél kisebb az atlagIdokoz
         nyersSebesseg = Math.round(100 - ((atlagIdokoz - 250) / (750 - 250)) * 90);
-        nyersSebesseg = Math.max(10, Math.min(100, nyersSebesseg)); // Korlátok közé szorítás (10-100)
+        nyersSebesseg = Math.max(10, Math.min(100, nyersSebesseg)); 
     } else {
         lepesIdokozok = [];
-        nyersSebesseg = 0; // Teljes megállás
+        nyersSebesseg = 0; 
     }
 
-    // Finom átmenet (interpoláció), hogy a sebességérték ne ugráljon vadul a kijelzőn
+    // Finom átmenet a kijelzőn
     aktualisSebessegSzazalek = Math.round(aktualisSebessegSzazalek * 0.8 + nyersSebesseg * 0.2);
 
     /* =========================================================================
-       ZÁROLÁSI LOGIKA (RETESZ) SEBESSÉGGEL
+       ZÁROLÁSI LOGIKA (RETESZ FIX)
+       - Most már a nyersSebesseg alapján döntünk azonnal, nem a tompított értékről!
        ========================================================================= */
     if (mozgásZárolva) {
-        if (aktualisSebessegSzazalek === 0) {
-            mozgásZárolva = false; // Csak 0-nál old fel teljesen
+        if (nyersSebesseg === 0) {
+            mozgásZárolva = false; // Feloldás, ha a nyers mozgás teljesen leállt
         }
     }
 
@@ -216,8 +213,8 @@ function feldolgoz() {
         dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
         fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
 
-        // Ha tiszta az alaphelyzet, de elindul a sebesség, bereteszelünk mozgásra
-        if (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebessegSzazalek > 0) {
+        // 🔥 FIX: Ha az állapongép SEMMI-n van és a nyersSebesseg beugrik, AZONNAL bereteszelünk!
+        if (dontes === "SEMMI" && fuggoleges === "SEMMI" && nyersSebesseg > 0) {
             mozgásZárolva = true;
         }
     }
@@ -235,13 +232,14 @@ function feldolgoz() {
 
     document.getElementById("allapot").textContent = kijelzendoAllapot;
 
-    // Debug panel a folytonos sebességértékkel
+    // Debug panel
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
         "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n" +
         "DINAMIKUS SEBESSÉG: " + aktualisSebessegSzazalek + "%\n" +
-        "ZÁROLVA (RETESZ): " + mozgásZárolva + "\n\n" +
+        "NYERS SEBESSÉG:     " + nyersSebesseg + "%\n" +
+        "ZÁROLVA (RETESZ):   " + mozgásZárolva + "\n\n" +
         "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
         "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
 }
