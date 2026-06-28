@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v4.0</title>
+<title>Fal-Kép Motor v5.0</title>
 
 <style>
 body {
@@ -23,7 +23,7 @@ body {
 }
 
 #allapot {
-    font-size: 32px;
+    font-size: 34px;
     font-weight: bold;
     color: #00ffcc;
 }
@@ -48,9 +48,9 @@ body {
 
 <div class="keret">
 
-    <button id="inditas">Falhoz kalibrálás</button>
+    <button id="inditas">Falhoz nyomás (kalibrálás)</button>
 
-    <div id="verzio">v4.0.0</div>
+    <div id="verzio">v5.0.0</div>
 
     <div id="allapot">VÁRAKOZÁS</div>
 
@@ -63,17 +63,14 @@ body {
 /* =========================
    VERZIÓ
 ========================= */
-const VERZIÓ = "v4.0.0";
+const VERZIÓ = "v5.0.0";
 
 /* =========================
-   SZENZOR
+   SZENZOR + REFERENCIA
 ========================= */
 let fut = false;
 
-/* gravitáció vektor */
 let gx = 0, gy = 0, gz = 0;
-
-/* referencia (falhoz nyomott állapot) */
 let rgx = 0, rgy = 0, rgz = 0;
 
 /* =========================
@@ -100,7 +97,7 @@ async function engedely() {
 }
 
 /* =========================
-   INDÍTÁS = KALIBRÁLÁS
+   INDÍTÁS (KALIBRÁCIÓ)
 ========================= */
 inditas.onclick = async () => {
 
@@ -143,47 +140,62 @@ function szenzor(e) {
 }
 
 /* =========================
-   VEKTOR KÜLÖNBSÉG
+   SAFE ZÓNA
 ========================= */
-function delta(a, b) {
-    return a - b;
+function deadzone(v, hatar) {
+    return Math.abs(v) < hatar ? 0 : v;
 }
 
 /* =========================
-   NORMALIZÁLT PROJEKCIÓK
+   FŐ LOGIKA
 ========================= */
 function feldolgoz() {
 
-    // relatív gravitáció
-    const dx = delta(gx, rgx);
-    const dy = delta(gy, rgy);
-    const dz = delta(gz, rgz);
+    // relatív vektor
+    const dx = gx - rgx;
+    const dy = gy - rgy;
+    const dz = gz - rgz;
 
-    // 🟡 DÖNTÉS = oldalirány (X-Y sík)
-    const dontes = Math.atan2(dx, dy) * 180 / Math.PI;
+    // SAFE ZÓNA
+    const SAFE = 0.8;
 
-    // 🔴 GUGGOLÁS = “kifelé billenés” (Z komponens)
-    const guggolas = dz;
+    const x = deadzone(dx, SAFE);
+    const y = deadzone(dy, SAFE);
+    const z = deadzone(dz, SAFE);
 
+    // 🟡 DÖNTÉS (oldalirány)
+    let dontes = Math.atan2(x, y) * 180 / Math.PI;
+
+    // 🔴 GUGGOLÁS / EMELÉS
+    let guggolas = 0;
+    let emeles = 0;
+
+    if (z < 0) guggolas = z;
+    if (z > 0) emeles = z;
+
+    // --- ÁLLAPOT ---
     let allapot = "ALAP";
 
-    if (Math.abs(guggolas) > 4) {
-        allapot = "GUGGOLÁS";
+    // 🔴 GUGGOLÁS prioritás
+    if (Math.abs(z) > 3) {
+        allapot = z < 0 ? "GUGGOLÁS" : "EMELÉS";
     }
+    // 🟡 DÖNTÉS
     else if (Math.abs(dontes) > 12) {
         allapot = "DÖNTÉS";
     }
 
+    // --- UI ---
     allapotEl.textContent = allapot;
 
     panel.textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
-        "DÖNTÉS (fok): " + dontes.toFixed(2) + "\n" +
-        "GUGGOLÁS (Z): " + guggolas.toFixed(2) + "\n\n" +
-        "RGX: " + rgx.toFixed(2) + "\n" +
-        "RGY: " + rgy.toFixed(2) + "\n" +
-        "RGZ: " + rgz.toFixed(2) + "\n\n" +
-        "ÁLLAPOT: " + allapot;
+        "DÖNTÉS (°): " + dontes.toFixed(2) + "\n" +
+        "GUGGOLÁS: " + guggolas.toFixed(2) + "\n" +
+        "EMELÉS: " + emeles.toFixed(2) + "\n\n" +
+        "X: " + x.toFixed(2) + "\n" +
+        "Y: " + y.toFixed(2) + "\n" +
+        "Z: " + z.toFixed(2);
 }
 
 </script>
