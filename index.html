@@ -1,4 +1,4 @@
-<!-- === 1. RÉSZ KEZDETE: HTML, CSS ÉS VERZIÓSZÁM === -->
+<!-- === 1. RÉSZ KEZDETE: HTML, CSS ÉS VERZIÓSZÁM v1.0.5 === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -8,22 +8,20 @@
     <style>
         body { font-family: sans-serif; background: #111; color: #fff; padding: 20px; text-align: center; margin: 0; }
         .container { max-width: 500px; margin: 0 auto; padding-top: 3vh; }
-        .version-tag { color: #ff3333; font-weight: bold; font-size: 14px; margin-bottom: 20px; letter-spacing: 1px; }
+        .version-tag { color: #00ffcc; font-weight: bold; font-size: 14px; margin-bottom: 20px; letter-spacing: 1px; }
         button { background: #ff5722; color: white; border: none; padding: 20px 40px; font-size: 22px; margin: 20px auto; border-radius: 8px; cursor: pointer; display: block; width: 85%; font-weight: bold; }
         #instruction { font-size: 32px; font-weight: bold; margin: 30px 0; color: #ffeb3b; min-height: 80px; padding: 0 10px; }
         #timer { font-size: 64px; font-weight: bold; color: #e91e63; margin: 20px 0; }
         #status { font-size: 18px; color: #aaa; margin-top: 40px; }
         .progress-bar { background: #333; height: 10px; border-radius: 5px; width: 85%; margin: 20px auto; overflow: hidden; }
         #progress { background: #4caf50; height: 100%; width: 0%; transition: width 0.3s; }
-        /* Teljesen láthatatlanul futó videó konténer a rendszer ébren tartásához */
-        #video-hack-container { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0.01; overflow: hidden; pointer-events: none; }
     </style>
 </head>
 <body>
 
     <div class="container">
         <!-- ÚJ VERZIÓSZÁM KIJELZÉS -->
-        <div class="version-tag">VERZIÓ: v1.0.4 - HARDCORE WAKE LOCK</div>
+        <div class="version-tag">VERZIÓ: v1.0.5 - AUDIO PROXIMITY SHIELD</div>
         
         <h1>Heatwave Kalibráció</h1>
         <p>A program végigvezet az összes mozgásformán (10-10 mp). Készülj fel, indítás után tedd a telefont a zsebedbe!</p>
@@ -39,13 +37,10 @@
 
         <div id="status">Állapot: Várakozás</div>
     </div>
-
-    <!-- Ide injektálja a kód a láthatatlan videót -->
-    <div id="video-hack-container"></div>
 <!-- === 1. RÉSZ VÉGE === -->
 
 
-<!-- === 2. RÉSZ KEZDETE: GYAKORLATOK ÉS STABIL HANG LOGIKA === -->
+<!-- === 2. RÉSZ KEZDETE: GYAKORLATOK ÉS HÁTTÉR AUDIO LOGIKA === -->
     <script>
         const exercises = [
             { id: "Seta_helyben", name: "Séta helyben (Kényelmesen)" },
@@ -65,9 +60,9 @@
         let sensorLogs = [];
         let isRecording = false;
         let startTimestamp = 0;
-        let exerciseTimer = null;
         let currentExerciseId = "Felkeszules";
-        let videoElement = null;
+        let worker = null;
+        let audioCtx = null;
 
         const startBtn = document.getElementById('startBtn');
         const instructionDiv = document.getElementById('instruction');
@@ -75,9 +70,23 @@
         const statusDiv = document.getElementById('status');
         const progressDiv = document.getElementById('progress');
 
+        // Golyóálló hangvezérlés: ha a TTS elaludna, ez a natív audio csatorna ébren tartja a telefont
         function speak(text) {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel(); 
+                
+                // Beindítunk egy néma, natív audio pulzust, mintha zene szólna a háttérben
+                try {
+                    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    gain.gain.value = 0.001; // Szinte teljesen néma szinuszhullám, de a rendszer zenelejátszásnak látja
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.5);
+                } catch(e) { console.log(e); }
+
                 setTimeout(() => {
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'hu-HU';
@@ -90,36 +99,35 @@
 <!-- === 2. RÉSZ VÉGE === -->
 
 
-<!-- === 3. RÉSZ KEZDETE: HARDVERES WAKE LOCK HACK, SZENZOROK ÉS CSV MENTÉS === -->
-        // Hardveres képernyőzár-blokkoló: Egy mikro-videót pörget a háttérben végtelenítve
-        function activateHardcoreWakeLock() {
-            const container = document.getElementById('video-hack-container');
-            // Egy 1 pixel széles, üres, fehér MP4 videó bázis64 kódja
-            const videoBase64 = "data:video/mp4;base64,AAAAHGZ0eXBtcDQyAAAAAG1wStandardAAAC9bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAAUAAAAEAAAAABAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEGAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAGidHJhawAAAFxdGtoZAAAAAcAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEGAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC0AbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAAUAAAAEAAAAABVcQAAAAAALxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAVxtZGluZgAAABR2bWhkAAAAAAAQAAAAAAAAAAAAAAAlZGluZgAAAAooZGNscgAAAABhdmMxAAAAAAAAAAAAAAAAGmhuY2wAAAAAAGhYcHIAAAAAAAAAAAAAAAAYY2xtcAAAAAAAY2xwcgAAAAAAAAAAAAAAABVzdGJsAAAArXN0c2QAAAAAAAAAAQAAAFdhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAEAAQABIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAALWF2Y0MBQsAM/+EAFWdCwAwUAAAEAAsAAAMAAgAAAwhIeJVisA==;inline=1";
-            
-            container.innerHTML = `<video id="wakeLockVideo" playsinline autoplay loop muted src="${videoBase64}"></video>`;
-            videoElement = document.getElementById('wakeLockVideo');
-            
-            // iOS kényszerítés: ha a rendszer megpróbálná szüneteltetni, azonnal indítsa újra
-            videoElement.play().catch(e => console.log("Videó indítási hiba:", e));
-            
-            // Biztonsági ellenőrzés: ha látszólag megállna, lökjünk rajta egyet
-            setInterval(() => {
-                if (videoElement && videoElement.paused) {
-                    videoElement.play().catch(() => {});
-                }
-            }, 1000);
-            
-            console.log("Hardcore Wake Lock elindítva a háttérben.");
-        }
+<!-- === 3. RÉSZ KEZDETE: WEB WORKER HÁTTÉRSZÁL, SZENZOROK ÉS MENTÉS === -->
+        // Háttérben futó, altathatatlan időzítő (Web Worker) létrehozása kódból
+        function startBackgroundTimer(duration, onTick, onComplete) {
+            if (worker) worker.terminate();
 
-        function stopHardcoreWakeLock() {
-            if (videoElement) {
-                videoElement.pause();
-                document.getElementById('video-hack-container').innerHTML = '';
-                videoElement = null;
-                console.log("Hardcore Wake Lock leállítva.");
-            }
+            // A worker kódja egy virtuális blob fájlként, amit a telefon nem tud hibernálni
+            const workerCode = `
+                let timeLeft = ${duration};
+                setInterval(() => {
+                    timeLeft--;
+                    postMessage({ type: 'tick', timeLeft: timeLeft });
+                    if (timeLeft <= 0) {
+                        postMessage({ type: 'complete' });
+                    }
+                }, 1000);
+            `;
+            
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            worker = new Worker(URL.createObjectURL(blob));
+            
+            worker.onmessage = function(e) {
+                if (e.data.type === 'tick') {
+                    onTick(e.data.timeLeft);
+                } else if (e.data.type === 'complete') {
+                    worker.terminate();
+                    worker = null;
+                    onComplete();
+                }
+            };
         }
 
         async function requestPermission() {
@@ -137,8 +145,10 @@
                 return;
             }
 
-            // KÉPERNYŐZÁR KILŐVÉSE VIDEÓ HACK-KEL
-            activateHardcoreWakeLock();
+            // AudioContext inicializálása az első érintésre (böngésző szabályzat miatt)
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
 
             try {
                 if (document.documentElement.requestFullscreen) {
@@ -147,9 +157,7 @@
                 if (screen.orientation && screen.orientation.lock) {
                     await screen.orientation.lock('landscape');
                 }
-            } catch(e) { 
-                console.log("Képernyőzár nem támogatott."); 
-            }
+            } catch(e) { console.log("Képernyőzár nem támogatott."); }
 
             startBtn.style.display = 'none';
             sensorLogs = [];
@@ -159,29 +167,16 @@
 
             window.addEventListener('devicemotion', handleMotion);
             
-            startCountdown(5, "Tedd a telefont a zsebedbe!", () => {
-                runNextExercise();
-            });
-        });
-
-        function startCountdown(seconds, message, onComplete) {
-            currentExerciseId = "Felkeszules";
-            instructionDiv.textContent = message;
-            speak(message);
+            // 5 mp felkészülés a zsebbe tételre háttérszálon
+            instructionDiv.textContent = "Tedd a telefont a zsebedbe!";
+            speak("Tedd a telefont a zsebedbe!");
+            timerDiv.textContent = "5";
             
-            let timeLeft = seconds;
-            timerDiv.textContent = timeLeft;
-
-            const interval = setInterval(() => {
-                timeLeft--;
-                if (timeLeft <= 0) {
-                    clearInterval(interval);
-                    onComplete();
-                } else {
-                    timerDiv.textContent = timeLeft;
-                }
-            }, 1000);
-        }
+            startBackgroundTimer(5, 
+                (timeLeft) => { timerDiv.textContent = timeLeft; },
+                () => { runNextExercise(); }
+            );
+        });
 
         function runNextExercise() {
             if (currentExerciseIndex >= exercises.length) {
@@ -196,23 +191,21 @@
             progressDiv.style.width = `${((currentExerciseIndex + 1) / exercises.length) * 100}%`;
             
             speak(currentEx.name);
+            timerDiv.textContent = "10";
 
-            let timeLeft = 10;
-            timerDiv.textContent = timeLeft;
-
-            exerciseTimer = setInterval(() => {
-                timeLeft--;
-                if (timeLeft <= 0) {
-                    clearInterval(exerciseTimer);
-                    currentExerciseIndex++;
-                    runNextExercise();
-                } else {
+            // Háttérszál indítása a 10 másodperces gyakorlathoz
+            startBackgroundTimer(10,
+                (timeLeft) => {
                     timerDiv.textContent = timeLeft;
-                    if (timeLeft <= 3) {
+                    if (timeLeft <= 3 && timeLeft > 0) {
                         speak(timeLeft.toString());
                     }
+                },
+                () => {
+                    currentExerciseIndex++;
+                    runNextExercise();
                 }
-            }, 1000);
+            );
         }
 
         function handleMotion(event) {
@@ -240,9 +233,7 @@
         function finishCalibration() {
             isRecording = false;
             window.removeEventListener('devicemotion', handleMotion);
-            
-            // Felszabadítjuk a hardvert a teszt végén
-            stopHardcoreWakeLock();
+            if (worker) worker.terminate();
 
             instructionDiv.textContent = "Kalibráció Kész!";
             timerDiv.textContent = "✔";
@@ -282,3 +273,4 @@
 </body>
 </html>
 <!-- === 3. RÉSZ VÉGE === -->
+
