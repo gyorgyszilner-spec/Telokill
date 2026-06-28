@@ -1,10 +1,10 @@
-<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.2.0 === -->
+<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.3.0 === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Heatwave Kétkezes Mozgásmotor</title>
+    <title>Heatwave Kétkezes Stabil Motor</title>
     <style>
         body { 
             font-family: sans-serif; 
@@ -47,13 +47,14 @@
             z-index: 10;
         }
         #live-gesture { 
-            font-size: 32px; 
+            font-size: 36px; 
             font-weight: bold; 
             margin: 15px 0; 
             color: #ffeb3b; 
             text-transform: uppercase;
             letter-spacing: 2px;
             text-shadow: 0 0 10px rgba(255, 235, 59, 0.4);
+            text-align: center;
         }
         #debug-vals { 
             font-size: 14px; 
@@ -61,7 +62,6 @@
             color: #888; 
             margin-top: 10px;
         }
-        /* Kontroller gombok körvonalai a hüvelykujjaknak */
         .ctrl-btn {
             position: absolute;
             width: 95px;
@@ -92,8 +92,8 @@
 <body>
 
     <div class="container">
-        <!-- PONTOS v2.2.0 VERZIÓSZÁM -->
-        <div class="version-tag">VERZIÓ: v2.2.0 - CORE RECOGNIZER ENGINE</div>
+        <!-- ÚJ VERZIÓSZÁM KIJELZÉS -->
+        <div class="version-tag">VERZIÓ: v2.3.0 - STABLE SMOOTHING ENGINE</div>
         
         <button id="startBtn">▶ MOTOR INDÍTÁSA</button>
 
@@ -106,24 +106,24 @@
     </div>
 <!-- === 1. RÉSZ VÉGE === -->
 
-<!-- === 2. RÉSZ KEZDETE: SAJÁT ADATOKRA HANGOLT DÖNTÉSI MÁTRIX === -->
+<!-- === 2. RÉSZ KEZDETE: ADATSIMÍTÓ ÉS IDŐABLAKOS MATRUX === -->
     <script>
         let isRecording = false;
 
-        // HTML elemek referenciái
+        // Vizuális elemek referenciái
         const startBtn = document.getElementById('startBtn');
         const liveGestureDiv = document.getElementById('live-gesture');
         const debugValsDiv = document.getElementById('debug-vals');
         const leftBtn = document.getElementById('leftBtn');
         const rightBtn = document.getElementById('rightBtn');
 
-        // Érintések kezelése a két körvonal kontroller gombhoz
+        // Érintések kezelése a két kontroller gombhoz
         leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); leftBtn.classList.add('active'); });
         leftBtn.addEventListener('touchend', () => { leftBtn.classList.remove('active'); });
         rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); rightBtn.classList.add('active'); });
         rightBtn.addEventListener('touchend', () => { rightBtn.classList.remove('active'); });
 
-        // Tiszta hangvezérlés a kontroller visszajelzéshez
+        // BESZÉD-SZINTETIZÁTOR
         function speak(text) {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel(); 
@@ -136,60 +136,89 @@
             }
         }
 
-        // --- A TE SAJÁT SZÁMAID ALAPJÁN BEÁLLÍTOTT KÜSZÖBÉRTÉKEK (Thresholds) ---
-        function processMovement(x, y, z, mag) {
-            let gesture = "MOZDULATLAN";
+        // --- ADATSIMÍTÓ (BUFFER) ÉS IDŐZÁR VÁLTOZÓK ---
+        const BUFFER_SIZE = 15; // Utolsó 15 pont átlagát nézzük (~0.25 másodperc)
+        let magBuffer = [];
+        let xBuffer = [], yBuffer = [], zBuffer = [];
+        
+        let lastGesture = "MOZDULATLAN";
+        let gestureLockTime = 0; // Megakadályozza a hirtelen ugrálást
+        const LOCK_DELAY = 400;  // Minimum 400 ms-ig megtartunk egy felismert akciót
 
-            // 1. HARDCORE ROBBANÁSOK ÉS ENERGIKUS HIIT AKCIÓK (mag > 5.0)
-            if (mag > 5.0) {
-                if (x < -4.0 && z < -1.0) {
-                    gesture = "HÁRÍTÁS / PAJZS FEL";
-                } else if (y < -4.5) {
-                    gesture = "GUGGOLÁSBÓL FELUGRÁS!";
-                } else if (z > 3.0 || x > 3.0) {
-                    gesture = "ÁTUGROS FUTÁSBÓL";
+        function processMovement(rawX, rawY, rawZ, rawMag) {
+            // 1. Adatok betolása a simító pufferbe
+            magBuffer.push(rawMag); if (magBuffer.length > BUFFER_SIZE) magBuffer.shift();
+            xBuffer.push(rawX);     if (xBuffer.length > BUFFER_SIZE) xBuffer.shift();
+            yBuffer.push(rawY);     if (yBuffer.length > BUFFER_SIZE) yBuffer.shift();
+            zBuffer.push(rawZ);     if (zBuffer.length > BUFFER_SIZE) zBuffer.shift();
+
+            // Ha még nincs elég adat a simításhoz, várunk
+            if (magBuffer.length < BUFFER_SIZE) return;
+
+            // 2. Matematikai átlagolás (Low-Pass Filter szimuláció)
+            const mag = magBuffer.reduce((a, b) => a + b, 0) / magBuffer.length;
+            const x = xBuffer.reduce((a, b) => a + b, 0) / xBuffer.length;
+            const y = yBuffer.reduce((a, b) => a + b, 0) / yBuffer.length;
+            const z = zBuffer.reduce((a, b) => a + b, 0) / zBuffer.length;
+
+            const now = performance.now();
+            let currentGesture = "MOZDULATLAN";
+
+            // 3. LOGIKAI DÖNTÉSI MÁTRIX A SIMÍTOTT ÉRTÉKEKKEL
+            if (mag > 4.5) {
+                if (x < -2.5 && z < -0.8) {
+                    currentGesture = "HÁRÍTÁS / PAJZS FEL";
+                } else if (y < -3.0) {
+                    currentGesture = "GUGGOLÁSBÓL FELUGRÁS!";
+                } else if (z > 2.0 || x > 2.0) {
+                    currentGesture = "ÁTUGROS FUTÁSBÓL";
                 }
-            } 
-            // 2. INTENZÍV HIIT ELEMEK: Sprint vagy Szlalom (mag > 3.0)
-            else if (mag > 3.0) {
-                if (Math.abs(x) > 3.5 && Math.abs(z) > 1.5) {
-                    gesture = "FUTÁS KITÉRÉSSEL (SZLALOM)";
-                } else if (y > 2.0) {
-                    gesture = "LEBUGGOLÁS (FEDEZÉK)";
+            } else if (mag > 2.5) {
+                if (Math.abs(x) > 2.5 && Math.abs(z) > 1.0) {
+                    currentGesture = "FUTÁS KITÉRÉSSEL (SZLALOM)";
+                } else if (y > 1.5) {
+                    currentGesture = "LEBUGGOLÁS (FEDEZÉK)";
                 } else {
-                    gesture = "FUTÁS HELYBEN";
+                    currentGesture = "FUTÁS HELYBEN";
                 }
-            } 
-            // 3. KÖZEPES MOZGÁSOK ÉS AKCIÓ-TRIGGEREK (mag > 1.5)
-            else if (mag > 1.5) {
-                if (y < -2.5) {
-                    gesture = "MAGAS TÉRD (LÉPCSŐZÉS)";
-                } else if (Math.abs(y) > 2.0 && Math.abs(x) < 0.5) {
-                    gesture = "TÖRZSFORDULÁS (KAMERA)";
-                } else if (z > 2.0) {
-                    gesture = "KAR KINYÚJTÁSA (LÖKÉS)";
-                } else if (Math.abs(z) > 1.8) {
-                    gesture = "TERPESZBE ÁLLÁS";
+            } else if (mag > 1.2) {
+                if (y < -1.8) {
+                    currentGesture = "MAGAS TÉRD (LÉPCSŐZÉS)";
+                } else if (Math.abs(y) > 1.5 && Math.abs(x) < 0.4) {
+                    currentGesture = "TÖRZSFORDULÁS (KAMERA)";
+                } else if (z > 1.5) {
+                    currentGesture = "KAR KINYÚJTÁSA (LÖKÉS)";
+                } else if (Math.abs(z) > 1.2) {
+                    currentGesture = "TERPESZBE ÁLLÁS";
                 } else {
-                    gesture = "SÉTA HELYBEN";
+                    currentGesture = "SÉTA HELYBEN";
                 }
-            } 
-            // 4. FINOM RETRO MOZGÁSOK (mag > 0.7)
-            else if (mag > 0.7) {
-                if (y > 0.8 && Math.abs(x) < 0.5) {
-                    gesture = "LOPAKODÁS (VÁDLIEMELÉS)";
+            } else if (mag > 0.6) {
+                if (y > 0.5 && Math.abs(x) < 0.3) {
+                    currentGesture = "LOPAKODÁS (VÁDLIEMELÉS)";
                 } else {
-                    gesture = "FINOM MOZGÁS";
+                    currentGesture = "FINOM MOZGÁS";
                 }
             }
 
-            // Élő kijelzés frissítése a kontroller képernyőjén
-            liveGestureDiv.textContent = gesture;
-            debugValsDiv.textContent = `Mag: ${mag.toFixed(2)} | X: ${x.toFixed(1)} | Y: ${y.toFixed(1)} | Z: ${z.toFixed(1)}`;
+            // 4. IDŐALAPÚ ZÁR MECHANIZMUS (Ettől nem fog ugrálni a kijelző!)
+            // Ha a mozgás "fontosabb" akció (ugrás, hárítás, guggolás), zároljuk a kijelzőt LOCK_DELAY időre
+            const isAction = ["HÁRÍTÁS / PAJZS FEL", "GUGGOLÁSBÓL FELUGRÁS!", "ÁTUGROS FUTÁSBÓL", "LEBUGGOLÁS (FEDEZÉK)", "FUTÁS KITÉRÉSSEL (SZLALOM)"].includes(currentGesture);
+
+            if (now > gestureLockTime) {
+                lastGesture = currentGesture;
+                if (isAction) {
+                    gestureLockTime = now + LOCK_DELAY; // Zárolás 400 ms-re
+                }
+            }
+
+            // Felület frissítése a stabilizált állapottal
+            liveGestureDiv.textContent = lastGesture;
+            debugValsDiv.textContent = `SMOOTHED -> Mag: ${mag.toFixed(2)} | X: ${x.toFixed(1)} | Y: ${y.toFixed(1)} | Z: ${z.toFixed(1)}`;
         }
 <!-- === 2. RÉSZ VÉGE === -->
 
-<!-- === 3. RÉSZ KEZDETE: SZENZOROK AKTIVÁLÁSA ÉS LEZÁRÁS v2.2.0 === -->
+<!-- === 3. RÉSZ KEZDETE: SZENZOROK AKTIVÁLÁSA ÉS LEZÁRÁS v2.3.0 === -->
         // iOS 13+ engedélykérő ablak kezelése
         async function requestPermission() {
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -207,7 +236,7 @@
                 return;
             }
 
-            // Képernyőzár és fekvő mód kényszerítése (Kontroller tartáshoz)
+            // Képernyőzár és fekvő mód kényszerítése
             try {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
@@ -226,14 +255,13 @@
             window.addEventListener('devicemotion', handleMotion);
             
             liveGestureDiv.textContent = "MOTOR AKTÍV!";
-            speak("A mozgásfelismerő motor elindult. Tartsd a telefont két kézzel!");
+            speak("A stabilizált mozgásfelismerő motor elindult. Tartsd a telefont két kézzel!");
         });
 
         // A nyers adatok fogadása másodpercenként 60-szor
         function handleMotion(event) {
             if (!isRecording) return;
 
-            // Gyorsulás gravitáció nélkül (ha elérhető), különben gravitációval együtt
             const acc = event.acceleration || event.accelerationIncludingGravity;
             if (!acc || acc.x === null) return;
 
@@ -241,10 +269,10 @@
             const y = acc.y;
             const z = acc.z;
             
-            // Abszolút elmozdulás ereje (vektorhossz), függetlenül a dőlésszögtől
+            // Abszolút elmozdulás ereje (vektorhossz)
             const magnitude = Math.sqrt(x*x + y*y + z*z);
 
-            // Adatok átadása a te saját számaiddal kalibrált felismerő funkciónak
+            // Adatok átadása az időablakos adatsimító funkciónak
             processMovement(x, y, z, magnitude);
         }
     </script>
