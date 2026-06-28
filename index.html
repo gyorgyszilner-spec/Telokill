@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Játékvezérlő v9.4</title>
+<title>Fal-Kép Játékvezérlő v9.7</title>
 <style>
 body { margin: 0; font-family: sans-serif; background: #111; color: #fff; }
 .keret { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 12px; }
@@ -34,7 +34,7 @@ body { margin: 0; font-family: sans-serif; background: #111; color: #fff; }
 </div>
 
 <script>
-const VERZIÓ = "v9.4.0";
+const VERZIÓ = "v9.7.0";
 let fut = false;
 
 // Szenzor és szűrt adatok
@@ -78,7 +78,6 @@ document.getElementById("inditas").onclick = async () => {
 function szenzor(e) {
     const a = e.accelerationIncludingGravity || {x:0, y:0, z:0};
     
-    // Simító szűrő megtartása
     ax = ax * 0.75 + a.x * 0.25;
     ay = ay * 0.75 + a.y * 0.25;
     az = az * 0.75 + a.z * 0.25;
@@ -92,8 +91,7 @@ function szenzor(e) {
 function detectLepes(jelenlegiDz) {
     const most = performance.now();
     
-    // Marad a szigorúbb lépésérzékelés, hogy dőléskor ne triggereljen be
-    if (Math.abs(jelenlegiDz) > 2.0 && Math.abs(utolsoGyorsulasZ) <= 2.0) {
+    if (Math.abs(jelenlegiDz) > 2.2 && Math.abs(utolsoGyorsulasZ) <= 2.2) {
         if (most - utolsoLepesIdo > 250) {
             const idokoz = most - utolsoLepesIdo;
             utolsoLepesIdo = most;
@@ -118,17 +116,16 @@ function kuldParancs(parancs) {
 }
 
 /* =========================================================================
-   FŐ ÁLLAPONGÉP (KISZÉLESÍTETT ALAPÁLLAPOTTAL ÉS VÁLTÁSI KÜSZÖBÖKKEL)
+   FŐ ÁLLAPONGÉP
    ========================================================================= */
 function feldolgoz() {
     const most = performance.now();
-    const gyorsulasDeltaZ = az - raz;
 
-    // 1. MOZGÁS/SEBESSÉG KIÉRTÉKELÉSE
+    // 1. JÁRÁS / FUTÁS KIÉRTÉKELÉSE
     let mozgasAllapot = "STOP";
     let atlagIdokoz = 0;
 
-    if (most - utolsoMozgasIdo < 600 && lepesIdokozok.length > 0 && Math.abs(gyorsulasDeltaZ) > 0.8) {
+    if (most - utolsoMozgasIdo < 600 && lepesIdokozok.length > 0) {
         atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
         if (atlagIdokoz < 420) {
             mozgasAllapot = "FUT";
@@ -140,40 +137,32 @@ function feldolgoz() {
     }
 
     // 2. TENGELYELTÉRÉSEK KISZÁMÍTÁSA FOKBAN
+    // X-tengely: Törzsdöntés oldalra (Roll)
     const aktSzogX = Math.atan2(ax, ay) * 180 / Math.PI;
     const kalSzogX = Math.atan2(rax, ray) * 180 / Math.PI;
     let dolesX = aktSzogX - kalSzogX;
     if (dolesX > 180) dolesX -= 360;
     if (dolesX < -180) dolesX += 360;
 
+    // Z-tengely: Ember bólintása előre-hátra (Pitch)
     const aktSzogZ = Math.atan2(az, ay) * 180 / Math.PI;
     const kalSzogZ = Math.atan2(raz, ray) * 180 / Math.PI;
     let dolesZ = aktSzogZ - kalSzogZ;
     if (dolesZ > 180) dolesZ -= 360;
     if (dolesZ < -180) dolesZ += 360;
 
-    /* =========================================================================
-       ÚJ, KISZÉLESÍTETT DEAD ZONE (HOLTTÉR) ÉS HISZTERÉZIS HATÁROK
-       ========================================================================= */
-    
-    // GUGGOLÁS (Z hirtelen elmozdulás delta)
-    // 3.2 m/s² felett vált lefelé, 1.2 m/s² felett tartja meg
-    const isGuggol = gyorsulasDeltaZ > 3.2 || (utolsoParancs === "LE" && gyorsulasDeltaZ > 1.2);
+    // Függőleges skála határai (Változatlan)
+    const isFelNez = dolesZ > 24 || (utolsoParancs === "FEL" && dolesZ > 11);
+    const isGuggol = dolesZ < -24 || (utolsoParancs === "LE" && dolesZ < -11);
 
-    // FELFELÉ NÉZÉS (Z dőlésszög)
-    // 🔥 NAGYON MEGEMELVE: Csak 26 fok feletti bólintásra vált be, és 12 fok alatt enged fel!
-    const isFelNez = dolesZ > 26 || (utolsoParancs === "FEL" && dolesZ > 12);
-
-    // TÖRZSDÖNTÉS BALRA ÉS JOBBRA (X dőlésszög)
-    // Kiszélesítve: 18 fok felett dől be, 9 fok alatt esik vissza alapra
-    const isBalraDolt = dolesX < -18 || (utolsoParancs === "BAL" && dolesX < -9);
-    const isJobbraDolt = dolesX > 18 || (utolsoParancs === "JOBB" && dolesX > 9);
+    // 🔥 FIX: BALRA ÉS JOBBRA IRÁNYOK MEGCYSERÉLÉSE
+    // Korábban dolesX < -18 volt a BAL, most ez lett a JOBB, és fordítva.
+    const isJobbraDolt = dolesX < -18 || (utolsoParancs === "JOBB" && dolesX < -9);
+    const isBalraDolt = dolesX > 18 || (utolsoParancs === "BAL" && dolesX > 9);
 
     /* =========================================================================
        PRIORITÁSI KIÉRTÉKELÉS
        ========================================================================= */
-    
-    // Ha aktív a mozgás, az zárol mindent
     if (mozgasAllapot === "FUT") {
         document.getElementById("allapot").textContent = "🏃 FUTÁS";
         kuldParancs("FUT");
@@ -182,13 +171,12 @@ function feldolgoz() {
         document.getElementById("allapot").textContent = "🚶 JÁRÁS";
         kuldParancs("JAR");
     } 
-    // Ha nincs mozgás, jöhetnek a statikus pózok
-    else if (isGuggol) {
-        document.getElementById("allapot").textContent = "GUGGOLÁS / LE";
-        kuldParancs("LE");
-    } else if (isFelNez) {
+    else if (isFelNez) {
         document.getElementById("allapot").textContent = "FELFELÉ NÉZ / FEL";
         kuldParancs("FEL");
+    } else if (isGuggol) {
+        document.getElementById("allapot").textContent = "GUGGOLÁS / LE";
+        kuldParancs("LE");
     } else if (isBalraDolt) {
         document.getElementById("allapot").textContent = "TÖRZSDÖNTÉS BALRA";
         kuldParancs("BAL");
@@ -196,20 +184,18 @@ function feldolgoz() {
         document.getElementById("allapot").textContent = "TÖRZSDÖNTÉS JOBBRA";
         kuldParancs("JOBB");
     } 
-    // TÁGAS, BIZTONSÁGOS ALAPÁLLAPOT (Ha senki sem lépte át a megnövelt holtteret)
     else {
         document.getElementById("allapot").textContent = "ALAP (ÁLL ÉS ELŐRE NÉZ)";
         kuldParancs("RELEASE");
     }
 
-    // Telemetria panel
+    // Telemetria panel frissítése
     document.getElementById("panel").textContent =
         "UTOLSÓ PARANCS:   " + utolsoParancs + "\n" +
-        "MOZGÁSÁLLAPOT:    " + mozgasAllapot + "\n" +
-        "LÉPÉSRITMUS (ms): " + (atlagIdokoz > 0 ? atlagIdokoz.toFixed(0) + " ms" : "0") + "\n\n" +
-        "X (Bal/Jobb fok): " + dolesX.toFixed(1) + "°\n" +
-        "Z (Fel/Le fok):   " + dolesZ.toFixed(1) + "°\n" +
-        "Guggolás delta:   " + gyorsulasDeltaZ.toFixed(2) + " m/s²";
+        "MOZGÁSÁLLAPOT:    " + mozgasAllapot + "\n\n" +
+        "X TENGELY (Fok):  " + dolesX.toFixed(1) + "°\n" +
+        " -> SKÁLA: BAL > +18° | ALAP | JOBB < -18°\n\n" +
+        "Z TENGELY (Fok):  " + dolesZ.toFixed(1) + "°";
 }
 </script>
 
