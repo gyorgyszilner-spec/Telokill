@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kontroller Debug V3 (HU)</title>
+<title>Helyzetdetektor v1.0.0</title>
 
 <style>
 body {
@@ -23,7 +23,7 @@ body {
 }
 
 #allapot {
-    font-size: 28px;
+    font-size: 30px;
     font-weight: bold;
     color: #00ffcc;
 }
@@ -34,7 +34,7 @@ body {
     background: #000;
     padding: 15px;
     border-radius: 8px;
-    width: 85%;
+    width: 90%;
     max-width: 420px;
 }
 </style>
@@ -46,38 +46,42 @@ body {
 
     <button id="startBtn">Szenzor indítása</button>
 
-    <div id="allapot">KÉSZENLÉT</div>
+    <div id="verzio">v1.0.0</div>
 
-    <div id="panel">VÁRAKOZÁS SZENZORRA...</div>
+    <div id="allapot">VÁRAKOZÁS</div>
+
+    <div id="panel">NINCS ADAT</div>
 
 </div>
 
 <script>
 
 /* =========================
-   ALAP ÁLLAPOT
+   VERZIÓ
+========================= */
+const VERZIO = "v1.0.0";
+
+/* =========================
+   SZENZOR ADATOK
 ========================= */
 let fut = false;
 
-let beta = 0, gamma = 0;
+let beta = 0;
+let gamma = 0;
 
 let alapBeta = null;
 let alapGamma = null;
 let kalibracioDb = 0;
 
 /* =========================
-   LÉPÉS RENDSZER
-========================= */
-let utolsoMag = 0;
-let lepesIdok = [];
-const ABLAK = 2000;
-
-/* =========================
    UI
 ========================= */
 const allapotEl = document.getElementById("allapot");
 const panel = document.getElementById("panel");
+const verzioEl = document.getElementById("verzio");
 const startBtn = document.getElementById("startBtn");
+
+verzioEl.textContent = "VERZIÓ: " + VERZIO;
 
 /* =========================
    ENGEDÉLY
@@ -115,76 +119,34 @@ startBtn.onclick = async () => {
         return;
     }
 
-    window.addEventListener("deviceorientation", ori);
-    window.addEventListener("devicemotion", mozgas);
+    window.addEventListener("deviceorientation", onOri);
 
     fut = true;
-    allapotEl.textContent = "FUT";
+    allapotEl.textContent = "INDUL";
 };
 
 /* =========================
    SZENZOR
 ========================= */
-function ori(e) {
+function onOri(e) {
 
     if (!fut) return;
 
-    beta = e.beta || 0;
-    gamma = e.gamma || 0;
-}
+    beta = e.beta || 0;   // előre-hátra dőlés
+    gamma = e.gamma || 0; // oldal dőlés
 
-function mozgas(e) {
-
-    if (!fut) return;
-
-    const a = e.acceleration || {};
-    const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
-
-    feldolgoz(mag, beta, gamma);
+    process();
 }
 
 /* =========================
-   LÉPÉS DETEKTOR
+   KALIBRÁCIÓ
 ========================= */
-function lepesDetektal(mag) {
+function kalibral() {
 
-    const kuszob = 1.1;
+    if (kalibracioDb < 30) {
 
-    const csucs = (mag > kuszob && utolsoMag <= kuszob);
-
-    utolsoMag = mag;
-
-    if (csucs) {
-
-        const most = Date.now();
-        lepesIdok.push(most);
-
-        lepesIdok = lepesIdok.filter(t => most - t < ABLAK);
-    }
-}
-
-/* =========================
-   MOZGÁS SZÁMÍTÁS
-========================= */
-function mozgasAllapot() {
-
-    const db = lepesIdok.length;
-
-    if (db >= 6) return "FUTÁS";
-    if (db >= 2) return "SÉTA";
-    return "ÁLL";
-}
-
-/* =========================
-   FŐ LOGIKA
-========================= */
-function feldolgoz(mag, b, g) {
-
-    /* --- KALIBRÁCIÓ --- */
-    if (alapBeta === null && kalibracioDb < 30) {
-
-        alapBeta = (alapBeta || 0) + b;
-        alapGamma = (alapGamma || 0) + g;
+        alapBeta = (alapBeta || 0) + beta;
+        alapGamma = (alapGamma || 0) + gamma;
 
         kalibracioDb++;
 
@@ -193,43 +155,55 @@ function feldolgoz(mag, b, g) {
             alapGamma /= 30;
         }
 
-        allapotEl.textContent = "KALIBRÁLÁS";
+        return false;
+    }
+
+    return true;
+}
+
+/* =========================
+   ÁLLAPOT DETEKTOR
+========================= */
+function getAllapot(dBeta, dGamma) {
+
+    /* 1. LEGGUGGOLT */
+    if (dBeta < -35) {
+        return "LEGGUGGOLT ÁLLAPOT";
+    }
+
+    /* 2. FÖNTÖTT (döntött a padlóhoz képest) */
+    if (Math.abs(dGamma) > 25) {
+        return "FÖNTÖTT ÁLLAPOT";
+    }
+
+    /* 3. ALAP */
+    return "ALAPÁLLAPOT";
+}
+
+/* =========================
+   FŐ LOGIKA
+========================= */
+function process() {
+
+    if (!kalibral()) {
+        allapotEl.textContent = "KALIBRÁLÁS...";
         return;
     }
 
-    const dDőlés = g - alapGamma;
-    const dGuggolás = b - alapBeta;
+    const dBeta = beta - alapBeta;
+    const dGamma = gamma - alapGamma;
 
-    /* --- MÓD --- */
-    let mod = "ÁLLÁS";
+    const allapot = getAllapot(dBeta, dGamma);
 
-    if (dGuggolás < -20) mod = "GUGGOL";
-    else if (Math.abs(dDőlés) > 30) mod = "DŐLÉS";
-
-    /* --- LÉPÉS --- */
-    lepesDetektal(mag);
-    const mozgas = mozgasAllapot();
-
-    /* --- FORDULÁS --- */
-    let fordulas = 0;
-
-    if (mod === "ÁLLÁS") {
-        if (Math.abs(dDőlés) > 25) {
-            fordulas = Math.max(-1, Math.min(1, dDőlés / 60));
-        }
-    }
-
-    /* --- KIJELZÉS --- */
-    allapotEl.textContent = mod;
+    allapotEl.textContent = allapot;
 
     panel.textContent =
-        "ÁLLAPOT: " + mod + "\n" +
-        "MOZGÁS: " + mozgas + "\n" +
-        "FORDULÁS: " + fordulas.toFixed(2) + "\n\n" +
-        "LÉPÉSEK (2s): " + lepesIdok.length + "\n" +
-        "DŐLÉS: " + dDőlés.toFixed(1) + "\n" +
-        "GUGGOLÁS: " + dGuggolás.toFixed(1) + "\n" +
-        "MAG: " + mag.toFixed(2);
+        "VERZIÓ: " + VERZIO + "\n\n" +
+        "BETA: " + beta.toFixed(1) + "\n" +
+        "GAMMA: " + gamma.toFixed(1) + "\n\n" +
+        "dBETA: " + dBeta.toFixed(1) + "\n" +
+        "dGAMMA: " + dGamma.toFixed(1) + "\n\n" +
+        "ÁLLAPOT: " + allapot;
 }
 
 </script>
