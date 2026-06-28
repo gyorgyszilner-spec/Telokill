@@ -1,4 +1,4 @@
-<!-- === 1. RÉSZ KEZDETE: HTML ÉS CSS STÍLUSOK === -->
+<!-- === 1. RÉSZ KEZDETE: HTML, CSS ÉS VERZIÓSZÁM === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -7,18 +7,24 @@
     <title>Heatwave Irányított Kalibráció</title>
     <style>
         body { font-family: sans-serif; background: #111; color: #fff; padding: 20px; text-align: center; margin: 0; }
-        .container { max-width: 500px; margin: 0 auto; padding-top: 5vh; }
-        button { background: #ff5722; color: white; border: none; padding: 20px 40px; font-size: 22px; margin: 20px auto; border-radius: 8px; cursor: pointer; display: block; width: 85%; }
+        .container { max-width: 500px; margin: 0 auto; padding-top: 3vh; }
+        .version-tag { color: #ff3333; font-weight: bold; font-size: 14px; margin-bottom: 20px; letter-spacing: 1px; }
+        button { background: #ff5722; color: white; border: none; padding: 20px 40px; font-size: 22px; margin: 20px auto; border-radius: 8px; cursor: pointer; display: block; width: 85%; font-weight: bold; }
         #instruction { font-size: 32px; font-weight: bold; margin: 30px 0; color: #ffeb3b; min-height: 80px; padding: 0 10px; }
         #timer { font-size: 64px; font-weight: bold; color: #e91e63; margin: 20px 0; }
         #status { font-size: 18px; color: #aaa; margin-top: 40px; }
         .progress-bar { background: #333; height: 10px; border-radius: 5px; width: 85%; margin: 20px auto; overflow: hidden; }
         #progress { background: #4caf50; height: 100%; width: 0%; transition: width 0.3s; }
+        /* Teljesen láthatatlanul futó videó konténer a rendszer ébren tartásához */
+        #video-hack-container { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0.01; overflow: hidden; pointer-events: none; }
     </style>
 </head>
 <body>
 
     <div class="container">
+        <!-- ÚJ VERZIÓSZÁM KIJELZÉS -->
+        <div class="version-tag">VERZIÓ: v1.0.4 - HARDCORE WAKE LOCK</div>
+        
         <h1>Heatwave Kalibráció</h1>
         <p>A program végigvezet az összes mozgásformán (10-10 mp). Készülj fel, indítás után tedd a telefont a zsebedbe!</p>
 
@@ -33,9 +39,13 @@
 
         <div id="status">Állapot: Várakozás</div>
     </div>
+
+    <!-- Ide injektálja a kód a láthatatlan videót -->
+    <div id="video-hack-container"></div>
 <!-- === 1. RÉSZ VÉGE === -->
 
-<!-- === 2. RÉSZ KEZDETE: JAVÍTOTT GYAKORLATOK ÉS STABIL HANG LOGIKA === -->
+
+<!-- === 2. RÉSZ KEZDETE: GYAKORLATOK ÉS STABIL HANG LOGIKA === -->
     <script>
         const exercises = [
             { id: "Seta_helyben", name: "Séta helyben (Kényelmesen)" },
@@ -57,6 +67,7 @@
         let startTimestamp = 0;
         let exerciseTimer = null;
         let currentExerciseId = "Felkeszules";
+        let videoElement = null;
 
         const startBtn = document.getElementById('startBtn');
         const instructionDiv = document.getElementById('instruction');
@@ -64,62 +75,59 @@
         const statusDiv = document.getElementById('status');
         const progressDiv = document.getElementById('progress');
 
-        // Drasztikusan stabilizált felolvasó funkció a mobil böngészőkhöz
         function speak(text) {
             if ('speechSynthesis' in window) {
-                // Először teljesen lenémítjuk és töröljük a korábbi sort
                 window.speechSynthesis.cancel(); 
-                
-                // Hagyunk időt a hardvernek az újraindulásra
                 setTimeout(() => {
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'hu-HU';
-                    utterance.rate = 1.0; 
+                    utterance.rate = 1.0;
                     utterance.pitch = 1.0;
-                    
-                    // Hibakezelő arra az esetre, ha a telefon elutasítaná a beszédet
-                    utterance.onerror = (e) => {
-                        console.error("Hang hiba:", e);
-                    };
-                    
                     window.speechSynthesis.speak(utterance);
-                }, 100); 
+                }, 50);
             }
         }
 <!-- === 2. RÉSZ VÉGE === -->
 
 
-         // --- 3. RÉSZ KEZDETE: SZENZOROK, IDŐZÍTŐ ÉS KIJELZŐ ÉBREN TARTÁS ---
-
-        let wakeLock = null;
-
-        // Kijelző lezárásának megakadályozása (Wake Lock API)
-        async function requestWakeLock() {
-            try {
-                if ('wakeLock' in navigator) {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                    console.log("Wake Lock aktív: A képernyő nem fog lekapcsolni.");
+<!-- === 3. RÉSZ KEZDETE: HARDVERES WAKE LOCK HACK, SZENZOROK ÉS CSV MENTÉS === -->
+        // Hardveres képernyőzár-blokkoló: Egy mikro-videót pörget a háttérben végtelenítve
+        function activateHardcoreWakeLock() {
+            const container = document.getElementById('video-hack-container');
+            // Egy 1 pixel széles, üres, fehér MP4 videó bázis64 kódja
+            const videoBase64 = "data:video/mp4;base64,AAAAHGZ0eXBtcDQyAAAAAG1wStandardAAAC9bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAAUAAAAEAAAAABAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEGAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAGidHJhawAAAFxdGtoZAAAAAcAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEGAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC0AbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAAUAAAAEAAAAABVcQAAAAAALxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAVxtZGluZgAAABR2bWhkAAAAAAAQAAAAAAAAAAAAAAAlZGluZgAAAAooZGNscgAAAABhdmMxAAAAAAAAAAAAAAAAGmhuY2wAAAAAAGhYcHIAAAAAAAAAAAAAAAAYY2xtcAAAAAAAY2xwcgAAAAAAAAAAAAAAABVzdGJsAAAArXN0c2QAAAAAAAAAAQAAAFdhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAEAAQABIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAALWF2Y0MBQsAM/+EAFWdCwAwUAAAEAAsAAAMAAgAAAwhIeJVisA==;inline=1";
+            
+            container.innerHTML = `<video id="wakeLockVideo" playsinline autoplay loop muted src="${videoBase64}"></video>`;
+            videoElement = document.getElementById('wakeLockVideo');
+            
+            // iOS kényszerítés: ha a rendszer megpróbálná szüneteltetni, azonnal indítsa újra
+            videoElement.play().catch(e => console.log("Videó indítási hiba:", e));
+            
+            // Biztonsági ellenőrzés: ha látszólag megállna, lökjünk rajta egyet
+            setInterval(() => {
+                if (videoElement && videoElement.paused) {
+                    videoElement.play().catch(() => {});
                 }
-            } catch (err) {
-                console.log(`Wake Lock hiba: ${err.name}, ${err.message}`);
+            }, 1000);
+            
+            console.log("Hardcore Wake Lock elindítva a háttérben.");
+        }
+
+        function stopHardcoreWakeLock() {
+            if (videoElement) {
+                videoElement.pause();
+                document.getElementById('video-hack-container').innerHTML = '';
+                videoElement = null;
+                console.log("Hardcore Wake Lock leállítva.");
             }
         }
 
-        // Kijelző lezárás feloldása a teszt végén
-        function releaseWakeLock() {
-            if (wakeLock !== null) {
-                wakeLock.release();
-                wakeLock = null;
-            }
-        }
-
-        // iOS 13+ engedélykérő ablak kezelése
         async function requestPermission() {
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                 const response = await DeviceMotionEvent.requestPermission();
                 return response === 'granted';
             }
-            return true; 
+            return true;
         }
 
         startBtn.addEventListener('click', async () => {
@@ -129,10 +137,9 @@
                 return;
             }
 
-            // Kijelző ébren tartásának bekapcsolása
-            await requestWakeLock();
+            // KÉPERNYŐZÁR KILŐVÉSE VIDEÓ HACK-KEL
+            activateHardcoreWakeLock();
 
-            // Képernyőzár aktiválása fekvő módba
             try {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
@@ -141,7 +148,7 @@
                     await screen.orientation.lock('landscape');
                 }
             } catch(e) { 
-                console.log("Orientation lock nem támogatott."); 
+                console.log("Képernyőzár nem támogatott."); 
             }
 
             startBtn.style.display = 'none';
@@ -202,7 +209,7 @@
                 } else {
                     timerDiv.textContent = timeLeft;
                     if (timeLeft <= 3) {
-                        speak(timeLeft.toString()); 
+                        speak(timeLeft.toString());
                     }
                 }
             }, 1000);
@@ -234,8 +241,8 @@
             isRecording = false;
             window.removeEventListener('devicemotion', handleMotion);
             
-            // Kijelző lezárás engedélyezése újra
-            releaseWakeLock();
+            // Felszabadítjuk a hardvert a teszt végén
+            stopHardcoreWakeLock();
 
             instructionDiv.textContent = "Kalibráció Kész!";
             timerDiv.textContent = "✔";
@@ -274,4 +281,4 @@
     </script>
 </body>
 </html>
-// --- 3. RÉSZ VÉGE ---
+<!-- === 3. RÉSZ VÉGE === -->
