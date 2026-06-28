@@ -2,8 +2,8 @@
 <html lang="hu">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v7.5.1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fal-Kép Motor v7.5.2</title>
 
 <style>
 body {
@@ -11,21 +11,28 @@ body {
     font-family: sans-serif;
     background: #111;
     color: #fff;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .keret {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100vh;
+    width: 100vw;
     gap: 12px;
+    z-index: 1;
 }
 
 #allapot {
     font-size: 34px;
     font-weight: bold;
     color: #00ffcc;
+    text-align: center;
 }
 
 #panel {
@@ -34,25 +41,73 @@ body {
     background: #000;
     padding: 15px;
     border-radius: 8px;
-    width: 92%;
-    max-width: 440px;
+    width: 85%;
+    max-width: 320px;
+    font-size: 13px;
+    z-index: 5;
 }
 
 #verzio { opacity: 0.7; }
+
+#inditas {
+    padding: 12px 24px;
+    font-size: 16px;
+    font-weight: bold;
+    background: #222;
+    border: 2px solid #00ffcc;
+    color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    z-index: 5;
+}
+
+/* KEREK HÜVELYKUIJJ GOMBOK A KÉT OLDALON */
+.oldal-gomb {
+    position: absolute;
+    bottom: 15%;
+    width: 85px;
+    height: 85px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.07);
+    border: 3px solid rgba(0, 255, 204, 0.4);
+    color: rgba(200, 255, 240, 0.7);
+    font-weight: bold;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    touch-action: none;
+    transition: background 0.1s, border-color 0.1s;
+}
+
+#gomb-bal { left: 20px; }
+#gomb-jobb { right: 20px; }
+
+.oldal-gomb:active {
+    background: rgba(0, 255, 204, 0.3);
+    border-color: #00ffcc;
+    color: #fff;
+    box-shadow: 0 0 15px #00ffcc;
+}
 </style>
 </head>
 
 <body>
 
+<!-- Érintőgombok a két szélen -->
+<div class="oldal-gomb" id="gomb-bal">BAL</div>
+<div class="oldal-gomb" id="gomb-jobb">JOBB</div>
+
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.5.1</div>
+    <div id="verzio">v7.5.2</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.5.1";
+const VERZIÓ = "v7.5.2";
 let fut = false;
 
 // Nyers és szűrt adatok (V7.2.3)
@@ -75,7 +130,13 @@ let mozgásÁllapot = "STOP";
 let mozgásZárolva = false;
 let utolsoSzog = 0;
 
-// Szenzor engedélyezés (V7.2.3)
+// Gombok állapota
+let balGombLenyomva = false;
+let jobbGombLenyomva = false;
+
+/* =========================================================================
+   ENGEDÉLY ÉS KALIBRÁCIÓS INDÍTÁS
+   ========================================================================= */
 async function engedely() {
     try {
         if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) {
@@ -88,7 +149,6 @@ async function engedely() {
     }
 }
 
-// Indítás és Kalibráció (V7.2.3)
 document.getElementById("inditas").onclick = async () => {
     const ok = await engedely();
     if (!ok) {
@@ -111,6 +171,7 @@ document.getElementById("inditas").onclick = async () => {
 function szenzor(e) {
     const a = e.accelerationIncludingGravity || {x:0, y:0, z:0};
     
+    // 70/30-as gyári aluláteresztő szűrő (V7.2.3)
     ax = ax * 0.7 + a.x * 0.3;
     ay = ay * 0.7 + a.y * 0.3;
     az = az * 0.7 + a.z * 0.3;
@@ -139,14 +200,12 @@ function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszo
 }
 
 /* =========================================================================
-   JAVÍTOTT LÉPÉSDETEKTOR - VÉDELEM A LASSÚ DŐLÉSEK ELLEN
+   KETTŐS LÉPÉSDETEKTOR
    ========================================================================= */
 function detectLepes(jelenlegiDz, szogValtozas) {
     const most = performance.now();
     
-    // 🔥 JAVÍTÁS: Visszaemeltük a belépési holtteret, hogy a sima finom döntések ne indítsák el a mozgást!
-    // Függőleges gyorsulás: 0.5 helyett 0.9 m/s² (a te kérésedre a járás és a tiszta alap megvédéséhez)
-    // Szögsebesség tüske: 1.2° helyett 2.8° mintánként (így a lassú bedőlés nem triggerel, csak a toporgás ritmusa)
+    // Holttér határok: 0.9 m/s² és 2.8° fok mintánként
     const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.9 && Math.abs(utolsoGyorsulasZ) <= 0.9;
     const vanDőléshullámTüske = Math.abs(szogValtozas) > 2.8;
 
@@ -159,7 +218,7 @@ function detectLepes(jelenlegiDz, szogValtozas) {
             lepesIdokozok.push(idokoz);
             if (lepesIdokozok.length > 3) lepesIdokozok.shift();
 
-            // Kombinált intenzitás számítása a rögzített mintákból
+            // Kombinált intenzitás pontszám (Rázkódás + dőléshullám sebesség)
             const aktualisIntenzitas = Math.abs(jelenlegiDz) + (Math.abs(szogValtozas) * 0.4);
             lepesIntenzitások.push(aktualisIntenzitas);
             if (lepesIntenzitások.length > 3) lepesIntenzitások.shift();
@@ -168,10 +227,13 @@ function detectLepes(jelenlegiDz, szogValtozas) {
     utolsoGyorsulasZ = jelenlegiDz;
 }
 
+/* =========================================================================
+   FŐ FELDOLGOZÓ LOGIKA ÉS RETESZELÉS
+   ========================================================================= */
 function feldolgoz() {
     const most = performance.now();
 
-    // DŐLÉSSZÖG SZÁMÍTÁSA (V7.2.3)
+    // Dőlésszög számítása (V7.2.3)
     const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
     const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
     
@@ -186,10 +248,10 @@ function feldolgoz() {
 
     const dz = az - raz;
 
-    // Lépések gyűjtése
+    // Lépések rögzítése
     detectLepes(dz, szogValtozas);
 
-    // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE
+    // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE (A TE MEGNÖVELT JÁRÁSI ABLAKOD)
     let aktualisSebesseg = "STOP";
     let atlagIntenzitas = 0;
 
@@ -201,10 +263,8 @@ function feldolgoz() {
         }
 
         if (lepesIdokozok.length >= 2) {
-            // Séta vs Futás ritmus határa: 460 ms
-            const isFutam = atlagIdokoz < 460;
-            
-            // Magas térdemelés választóvonala igazítva az emelt bemeneti kapuhoz: 2.10
+            // A te ritmusodhoz igazított tágas járás határ: 380 ms
+            const isFutam = atlagIdokoz < 380;
             const isMagasTerd = atlagIntenzitas > 2.10; 
 
             if (isFutam) {
@@ -230,7 +290,7 @@ function feldolgoz() {
         }
     }
 
-    // 2. STATIKUS ÁLLAPOTOK (V7.2.3)
+    // 2. STATIKUS ÁLLAPOTOK (V7.2.3 - CSAK HA NINCS RETESZ)
     if (!mozgásZárolva) {
         dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
         fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
@@ -241,7 +301,7 @@ function feldolgoz() {
         }
     }
 
-    // 3. MEGJELENÍTÉS ÉS HIERARCHIA (V7.2.3)
+    // 3. MEGJELENÍTÉS ÉS HIERARCHIA
     let kijelzendoAllapot = "ALAP";
     
     if (mozgásZárolva) {
@@ -254,17 +314,30 @@ function feldolgoz() {
 
     document.getElementById("allapot").textContent = kijelzendoAllapot;
 
-    // Debug panel
+    // Telemetria kiírása
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
         "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n" +
         "MOZGÁS STÁTUSZ: " + mozgásÁllapot + "\n\n" +
+        "BAL GOMB: " + (balGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n" +
+        "JOBB GOMB: " + (jobbGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n\n" +
         "KOMBI INTENZITÁS:  " + atlagIntenzitas.toFixed(2) + "\n" +
         "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
-        "SZÖG SEBESSÉG (fok/m): " + szogValtozas.toFixed(2) + "°\n" +
         "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
 }
+
+/* =========================================================================
+   HÜVELYKUIJJ GOMBOK ÉRINTÉS-KEZELÉSE (ZÁRÓ BLOKK)
+   ========================================================================= */
+const bGomb = document.getElementById("gomb-bal");
+const jGomb = document.getElementById("gomb-jobb");
+
+bGomb.addEventListener("touchstart", (e) => { e.preventDefault(); balGombLenyomva = true; });
+bGomb.addEventListener("touchend", (e) => { e.preventDefault(); balGombLenyomva = false; });
+
+jGomb.addEventListener("touchstart", (e) => { e.preventDefault(); jobbGombLenyomva = true; });
+jGomb.addEventListener("touchend", (e) => { e.preventDefault(); jobbGombLenyomva = false; });
 </script>
 
 </body>
