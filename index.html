@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v1.0.0</title>
+<title>Fal-Kép Motor v2.0</title>
 
 <style>
 body {
@@ -23,7 +23,7 @@ body {
 }
 
 #allapot {
-    font-size: 30px;
+    font-size: 32px;
     font-weight: bold;
     color: #00ffcc;
 }
@@ -37,6 +37,10 @@ body {
     width: 90%;
     max-width: 420px;
 }
+
+#verzio {
+    opacity: 0.7;
+}
 </style>
 </head>
 
@@ -46,7 +50,7 @@ body {
 
     <button id="inditas">Szenzor indítása</button>
 
-    <div id="verzio">v1.0.0</div>
+    <div id="verzio">v2.0.0</div>
 
     <div id="allapot">VÁRAKOZÁS</div>
 
@@ -59,29 +63,31 @@ body {
 /* =========================
    VERZIÓ
 ========================= */
-const VERZIO = "v1.0.0";
+const VERZIÓ = "v2.0.0";
 
 /* =========================
    SZENZOR ADATOK
 ========================= */
 let fut = false;
 
-let beta = 0;   // előre-hátra dőlés
-let gamma = 0;  // oldal dőlés
+let beta = 0;   // előre-hátra (guggolás alapja)
+let gamma = 0;  // oldal (döntés alapja)
 
 let alapBeta = null;
 let alapGamma = null;
 let kalibracioDb = 0;
 
 /* =========================
+   ÁLLAPOTOK
+========================= */
+let allapot = "ALAP";
+
+/* =========================
    UI
 ========================= */
-const allapot = document.getElementById("allapot");
+const allapotEl = document.getElementById("allapot");
 const panel = document.getElementById("panel");
 const inditas = document.getElementById("inditas");
-const verzio = document.getElementById("verzio");
-
-verzio.textContent = "VERZIÓ: " + VERZIO;
 
 /* =========================
    ENGEDÉLY
@@ -89,11 +95,6 @@ verzio.textContent = "VERZIÓ: " + VERZIO;
 async function engedely() {
 
     try {
-
-        if (DeviceMotionEvent?.requestPermission) {
-            const r = await DeviceMotionEvent.requestPermission();
-            if (r !== "granted") return false;
-        }
 
         if (DeviceOrientationEvent?.requestPermission) {
             const r = await DeviceOrientationEvent.requestPermission();
@@ -115,14 +116,14 @@ inditas.onclick = async () => {
     const ok = await engedely();
 
     if (!ok) {
-        allapot.textContent = "NINCS ENGEDÉLY";
+        allapotEl.textContent = "NINCS ENGEDÉLY";
         return;
     }
 
     window.addEventListener("deviceorientation", szenzor);
 
     fut = true;
-    allapot.textContent = "FUT";
+    allapotEl.textContent = "FUT";
 };
 
 /* =========================
@@ -162,48 +163,77 @@ function kalibral() {
 }
 
 /* =========================
-   ÁLLAPOT LOGIKA
+   DÖNTÉS (KORMÁNY) LOGIKA
 ========================= */
-function allapotSzamitas(ferdeseg, kinyilas) {
+function dontesAktiv(ferdeseg) {
 
-    // 🔴 GUGGOLÁS: elválik a faltól
-    if (kinyilas > 25) {
-        return "GUGGOLÁS";
+    const BE = 18;   // belépési küszöb
+    const KI = 10;   // kilépési küszöb
+
+    if (allapot !== "DÖNTÉS" && Math.abs(ferdeseg) > BE) {
+        return true;
     }
 
-    // 🟡 DÖNTÖTT: ferde a falon
-    if (Math.abs(ferdeseg) > 15) {
-        return "DÖNTÖTT";
+    if (allapot === "DÖNTÉS" && Math.abs(ferdeseg) < KI) {
+        return false;
     }
 
-    // 🟢 ALAP
-    return "ALAPÁLLAPOT";
+    return allapot === "DÖNTÉS";
 }
 
 /* =========================
-   FŐ FOLYAMAT
+   GUGGOLÁS LOGIKA (FELBORULÁS)
+========================= */
+function guggolasAktiv(kinyilas) {
+
+    const BE = 45;   // csak nagy billenésnél indul
+    const KI = 30;   // visszaállás
+
+    if (allapot !== "GUGGOLÁS" && kinyilas > BE) {
+        return true;
+    }
+
+    if (allapot === "GUGGOLÁS" && kinyilas < KI) {
+        return false;
+    }
+
+    return allapot === "GUGGOLÁS";
+}
+
+/* =========================
+   FŐ LOGIKA
 ========================= */
 function feldolgoz() {
 
     if (!kalibral()) {
-        allapot.textContent = "KALIBRÁLÁS...";
+        allapotEl.textContent = "KALIBRÁLÁS...";
         return;
     }
 
-    const ferdeseg = gamma - alapGamma;   // falon belüli forgás
-    const kinyilas = Math.abs(beta - alapBeta); // falról elválás érzete
+    const ferdeseg = gamma - alapGamma;           // DÖNTÉS tengely
+    const kinyilas = Math.abs(beta - alapBeta);   // GUGGOLÁS tengely
 
-    const all = allapotSzamitas(ferdeseg, kinyilas);
+    /* ---- ÁLLAPOT DÖNTÉS (PRIORITÁS: GUGGOLÁS) ---- */
 
-    allapot.textContent = all;
+    let ujAllapot = "ALAP";
+
+    if (guggolasAktiv(kinyilas)) {
+        ujAllapot = "GUGGOLÁS";
+    }
+    else if (dontesAktiv(ferdeseg)) {
+        ujAllapot = "DÖNTÉS";
+    }
+
+    allapot = ujAllapot;
+
+    /* ---- UI ---- */
+    allapotEl.textContent = allapot;
 
     panel.textContent =
-        "VERZIÓ: " + VERZIO + "\n\n" +
-        "BETA: " + beta.toFixed(1) + "\n" +
-        "GAMMA: " + gamma.toFixed(1) + "\n\n" +
-        "FERDESÉG: " + ferdeseg.toFixed(1) + "\n" +
-        "KINYÍLÁS: " + kinyilas.toFixed(1) + "\n\n" +
-        "ÁLLAPOT: " + all;
+        "VERZIÓ: " + VERZIÓ + "\n\n" +
+        "FERDESÉG (DÖNTÉS): " + ferdeseg.toFixed(1) + "\n" +
+        "KINYÍLÁS (GUGGOLÁS): " + kinyilas.toFixed(1) + "\n\n" +
+        "ÁLLAPOT: " + allapot;
 }
 
 </script>
