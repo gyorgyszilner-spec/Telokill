@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v7.3.1</title>
+<title>Fal-Kép Motor v7.3.2</title>
 
 <style>
 body {
@@ -46,13 +46,13 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.3.1</div>
+    <div id="verzio">v7.3.2</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.3.1";
+const VERZIÓ = "v7.3.2";
 let fut = false;
 
 // Nyers és szűrt adatok (V7.2)
@@ -138,16 +138,20 @@ function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszo
 }
 
 /* =========================================================================
-   KETTŐS LÉPÉSDETEKTOR
+   ULTRA-ÉRZÉKENY KETTŐS LÉPÉSDETEKTOR
    ========================================================================= */
 function detectLepes(jelenlegiDz, szogValtozas) {
     const most = performance.now();
     
-    const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.8 && Math.abs(utolsoGyorsulasZ) <= 0.8;
-    const vanDőléshullámTüske = Math.abs(szogValtozas) > 1.9;
+    // 🔥 KÜSZÖBÖK RADIKÁLISAN LEENGEDVE:
+    // Függőleges rázkódás: 0.8 helyett 0.4 m/s²
+    // Szögsebesség tüske: 1.9 helyett 0.7 fok / mintavétel
+    const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.4 && Math.abs(utolsoGyorsulasZ) <= 0.4;
+    const vanDőléshullámTüske = Math.abs(szogValtozas) > 0.7;
 
     if (vanFüggőlegesRázkódás || vanDőléshullámTüske) {
-        if (most - utolsoLepesIdo > 180) {
+        // Időbeli de-bounce minimálisra véve (140ms), hogy a sűrű rezgést is elkapja
+        if (most - utolsoLepesIdo > 140) {
             const idokoz = most - utolsoLepesIdo;
             utolsoLepesIdo = most;
             utolsoMozgasIdo = most;
@@ -185,10 +189,11 @@ function feldolgoz() {
        ========================================================================= */
     let nyersSebesseg = 0;
 
-    if (most - utolsoMozgasIdo < 950 && lepesIdokozok.length >= 2) {
+    // Megnövelt időtúllépés ablak (1200ms), hogy a ritkább lépéseket se dobja el azonnal
+    if (most - utolsoMozgasIdo < 1200 && lepesIdokozok.length >= 2) {
         const atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
         
-        nyersSebesseg = Math.round(100 - ((atlagIdokoz - 250) / (750 - 250)) * 90);
+        nyersSebesseg = Math.round(100 - ((atlagIdokoz - 200) / (850 - 200)) * 90);
         nyersSebesseg = Math.max(10, Math.min(100, nyersSebesseg)); 
     } else {
         lepesIdokozok = [];
@@ -199,12 +204,11 @@ function feldolgoz() {
     aktualisSebessegSzazalek = Math.round(aktualisSebessegSzazalek * 0.8 + nyersSebesseg * 0.2);
 
     /* =========================================================================
-       ZÁROLÁSI LOGIKA (RETESZ FIX)
-       - Most már a nyersSebesseg alapján döntünk azonnal, nem a tompított értékről!
+       ZÁROLÁSI LOGIKA (RETESZ)
        ========================================================================= */
     if (mozgásZárolva) {
         if (nyersSebesseg === 0) {
-            mozgásZárolva = false; // Feloldás, ha a nyers mozgás teljesen leállt
+            mozgásZárolva = false; 
         }
     }
 
@@ -213,7 +217,6 @@ function feldolgoz() {
         dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
         fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
 
-        // 🔥 FIX: Ha az állapongép SEMMI-n van és a nyersSebesseg beugrik, AZONNAL bereteszelünk!
         if (dontes === "SEMMI" && fuggoleges === "SEMMI" && nyersSebesseg > 0) {
             mozgásZárolva = true;
         }
@@ -232,16 +235,17 @@ function feldolgoz() {
 
     document.getElementById("allapot").textContent = kijelzendoAllapot;
 
-    // Debug panel
+    // Debug panel a nyers értékek ellenőrzéséhez
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
         "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n" +
         "DINAMIKUS SEBESSÉG: " + aktualisSebessegSzazalek + "%\n" +
         "NYERS SEBESSÉG:     " + nyersSebesseg + "%\n" +
-        "ZÁROLVA (RETESZ):   " + mozgásZárolva + "\n\n" +
-        "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
-        "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
+        "ZÁROLVA (RETESZ):   " + mozgásZárolva + "\n" +
+        "PUFFER:             " + lepesIdokozok.length + " db\n\n" +
+        "SZÖG SEBESSÉG:      " + szogValtozas.toFixed(2) + "°\n" +
+        "DZ (gyorsulás):     " + dz.toFixed(2) + " m/s²";
 }
 </script>
 
