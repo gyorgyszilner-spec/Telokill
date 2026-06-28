@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v5.2</title>
+<title>Fal-Kép Motor v6.0</title>
 
 <style>
 body {
@@ -34,8 +34,8 @@ body {
     background: #000;
     padding: 15px;
     border-radius: 8px;
-    width: 90%;
-    max-width: 420px;
+    width: 92%;
+    max-width: 440px;
 }
 
 #verzio {
@@ -48,9 +48,9 @@ body {
 
 <div class="keret">
 
-    <button id="inditas">Falhoz kalibrálás</button>
+    <button id="inditas">Falhoz nyomás (kalibrálás)</button>
 
-    <div id="verzio">v5.2.0</div>
+    <div id="verzio">v6.0.0</div>
 
     <div id="allapot">VÁRAKOZÁS</div>
 
@@ -60,7 +60,7 @@ body {
 
 <script>
 
-const VERZIÓ = "v5.2.0";
+const VERZIÓ = "v6.0.0";
 
 /* =========================
    SZENZOR
@@ -71,10 +71,10 @@ let gx = 0, gy = 0, gz = 0;
 let rgx = 0, rgy = 0, rgz = 0;
 
 /* =========================
-   ÁLLAPOT
+   ÁLLAPOTOK
 ========================= */
-let allapot = "ALAP";
-let dontesIrany = "SEMMI"; // BAL / JOBB / SEMMI
+let dontes = "SEMMI";     // BAL / JOBB / SEMMI
+let fuggoleges = "SEMMI"; // GUGGOLÁS / EMELÉS / SEMMI
 
 /* =========================
    ENGEDÉLY
@@ -99,12 +99,15 @@ document.getElementById("inditas").onclick = async () => {
     const ok = await engedely();
     if (!ok) return;
 
-    window.addEventListener("devicemotion", szenzor);
-
     document.getElementById("allapot").textContent = "NYOMD A FALHOZ";
 
+    window.addEventListener("devicemotion", szenzor);
+
     setTimeout(() => {
-        rgx = gx; rgy = gy; rgz = gz;
+        rgx = gx;
+        rgy = gy;
+        rgz = gz;
+
         fut = true;
         document.getElementById("allapot").textContent = "FUT";
     }, 1200);
@@ -125,88 +128,82 @@ function szenzor(e) {
 }
 
 /* =========================
-   DEADZONE (IGAZI SAFE ZÓNA)
+   STATE MACHINE
 ========================= */
-function dz(v, be, ki, stateActive) {
+function stateMachine(value, state, negLabel, posLabel, be, ki) {
 
-    if (!stateActive && Math.abs(v) < be) return 0;
-    if (stateActive && Math.abs(v) < ki) return 0;
+    let newState = state;
 
-    return v;
+    if (Math.abs(value) < ki) {
+        newState = "SEMMI";
+    }
+    else if (value > be) {
+        newState = posLabel;
+    }
+    else if (value < -be) {
+        newState = negLabel;
+    }
+
+    return newState;
 }
 
 /* =========================
-   LOGIKA
+   FŐ LOGIKA
 ========================= */
 function feldolgoz() {
 
     const dx = gx - rgx;
     const dy = gy - rgy;
-    const dzv = gz - rgz;
+    const dz = gz - rgz;
 
     /* -------------------------
        DÖNTÉS (BAL / JOBB)
     -------------------------- */
-
-    const BE_D = 1.8;
-    const KI_D = 1.0;
-
     const tiltRaw = Math.atan2(dx, dy) * 180 / Math.PI;
 
-    let ujDontesIrany = dontesIrany;
-
-    if (dontesIrany === "SEMMI" && Math.abs(tiltRaw) > BE_D) {
-        ujDontesIrany = tiltRaw > 0 ? "JOBB" : "BAL";
-    }
-
-    if (dontesIrany !== "SEMMI" && Math.abs(tiltRaw) < KI_D) {
-        ujDontesIrany = "SEMMI";
-    }
-
-    dontesIrany = ujDontesIrany;
+    dontes = stateMachine(
+        tiltRaw,
+        dontes,
+        "BAL",
+        "JOBB",
+        20,
+        12
+    );
 
     /* -------------------------
        GUGGOLÁS / EMELÉS
     -------------------------- */
-
-    const G_BE = 4.0;
-    const G_KI = 2.2;
-
-    let ujAllapot = allapot;
-
-    // GUGGOLÁS (negatív)
-    if (allapot !== "GUGGOLÁS" && dzv < -G_BE) {
-        ujAllapot = "GUGGOLÁS";
-    }
-    if (allapot === "GUGGOLÁS" && dzv > -G_KI) {
-        ujAllapot = "ALAP";
-    }
-
-    // EMELÉS (pozitív)
-    if (allapot !== "EMELÉS" && dzv > G_BE) {
-        ujAllapot = "EMELÉS";
-    }
-    if (allapot === "EMELÉS" && dzv < G_KI) {
-        ujAllapot = "ALAP";
-    }
+    fuggoleges = stateMachine(
+        dz,
+        fuggoleges,
+        "GUGGOLÁS",
+        "EMELÉS",
+        5,
+        3
+    );
 
     /* -------------------------
-       OUTPUT
+       KIJELZÉS
     -------------------------- */
 
-    if (ujAllapot === "ALAP" && dontesIrany !== "SEMMI") {
-        ujAllapot = "DÖNTÉS " + dontesIrany;
+    let nagyAllapot = "ALAP";
+
+    if (dontes !== "SEMMI") {
+        nagyAllapot = "DÖNTÉS " + dontes;
     }
 
-    allapot = ujAllapot;
+    if (fuggoleges !== "SEMMI") {
+        nagyAllapot = fuggoleges;
+    }
 
-    document.getElementById("allapot").textContent = allapot;
+    document.getElementById("allapot").textContent = nagyAllapot;
 
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
-        "DÖNTÉS: " + dontesIrany + "\n" +
-        "TILT: " + tiltRaw.toFixed(2) + "\n" +
-        "Z: " + dzv.toFixed(2);
+        "DÖNTÉS: " + dontes + "\n" +
+        "FÜGGŐLEGES: " + fuggoleges + "\n\n" +
+        "RAW TILT: " + tiltRaw.toFixed(2) + "\n" +
+        "Z: " + dz.toFixed(2);
 }
 
 </script>
