@@ -89,7 +89,29 @@
 <!-- === 2. RÉSZ VÉGE === -->
 
 
- // --- 3. RÉSZ KEZDETE: SZENZOROK, IDŐZÍTŐ ÉS BIZTONSÁGOS KÉZI MENTÉS ---
+         // --- 3. RÉSZ KEZDETE: SZENZOROK, IDŐZÍTŐ ÉS KIJELZŐ ÉBREN TARTÁS ---
+
+        let wakeLock = null;
+
+        // Kijelző lezárásának megakadályozása (Wake Lock API)
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log("Wake Lock aktív: A képernyő nem fog lekapcsolni.");
+                }
+            } catch (err) {
+                console.log(`Wake Lock hiba: ${err.name}, ${err.message}`);
+            }
+        }
+
+        // Kijelző lezárás feloldása a teszt végén
+        function releaseWakeLock() {
+            if (wakeLock !== null) {
+                wakeLock.release();
+                wakeLock = null;
+            }
+        }
 
         // iOS 13+ engedélykérő ablak kezelése
         async function requestPermission() {
@@ -97,7 +119,7 @@
                 const response = await DeviceMotionEvent.requestPermission();
                 return response === 'granted';
             }
-            return true; // Android vagy régebbi rendszerek
+            return true; 
         }
 
         startBtn.addEventListener('click', async () => {
@@ -107,7 +129,10 @@
                 return;
             }
 
-            // Képernyőzár aktiválása fekvő módba a fix belső tengelyekért
+            // Kijelző ébren tartásának bekapcsolása
+            await requestWakeLock();
+
+            // Képernyőzár aktiválása fekvő módba
             try {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
@@ -116,7 +141,7 @@
                     await screen.orientation.lock('landscape');
                 }
             } catch(e) { 
-                console.log("Képernyőzár nem támogatott ezen az eszközön."); 
+                console.log("Orientation lock nem támogatott."); 
             }
 
             startBtn.style.display = 'none';
@@ -127,7 +152,6 @@
 
             window.addEventListener('devicemotion', handleMotion);
             
-            // 5 másodperces felkészülés a zsebbe tételre
             startCountdown(5, "Tedd a telefont a zsebedbe!", () => {
                 runNextExercise();
             });
@@ -178,7 +202,7 @@
                 } else {
                     timerDiv.textContent = timeLeft;
                     if (timeLeft <= 3) {
-                        speak(timeLeft.toString()); // Utolsó 3 mp visszaszámlálása
+                        speak(timeLeft.toString()); 
                     }
                 }
             }, 1000);
@@ -210,17 +234,18 @@
             isRecording = false;
             window.removeEventListener('devicemotion', handleMotion);
             
+            // Kijelző lezárás engedélyezése újra
+            releaseWakeLock();
+
             instructionDiv.textContent = "Kalibráció Kész!";
             timerDiv.textContent = "✔";
             statusDiv.textContent = "Kattints a mentés gombra!";
             speak("Gratulálok, a kalibráció befejeződött. Mentsd el a fájlt!");
 
-            // Átalakítjuk az indító gombot egy nagy zöld letöltő gombbá, amit a telefon nem tud blokkolni
             startBtn.style.display = 'block';
             startBtn.style.background = '#4caf50';
             startBtn.textContent = "⬇ CSV FÁJL LETÖLTÉSE";
             
-            // Új eseménykezelőt adunk neki a letöltéshez
             startBtn.onclick = function() {
                 downloadCSV();
             };
@@ -244,7 +269,7 @@
             link.click();
             document.body.removeChild(link);
             
-            statusDiv.textContent = "Fájl letöltve! Másold be az adatokat.";
+            statusDiv.textContent = "Fájl letöltve!";
         }
     </script>
 </body>
