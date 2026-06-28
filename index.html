@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Controller API Debug v2</title>
+<title>Kontroller Debug V3 (HU)</title>
 
 <style>
 body {
@@ -22,7 +22,7 @@ body {
     gap: 15px;
 }
 
-#state {
+#allapot {
     font-size: 28px;
     font-weight: bold;
     color: #00ffcc;
@@ -34,7 +34,7 @@ body {
     background: #000;
     padding: 15px;
     border-radius: 8px;
-    width: 80%;
+    width: 85%;
     max-width: 420px;
 }
 </style>
@@ -46,61 +46,43 @@ body {
 
     <button id="startBtn">Szenzor indítása</button>
 
-    <div id="state">IDLE</div>
+    <div id="allapot">KÉSZENLÉT</div>
 
-    <div id="panel">WAITING FOR SENSOR...</div>
+    <div id="panel">VÁRAKOZÁS SZENZORRA...</div>
 
 </div>
 
 <script>
 
 /* =========================
-   SENSOR STATE
+   ALAP ÁLLAPOT
 ========================= */
-let running = false;
+let fut = false;
 
-let alpha = 0, beta = 0, gamma = 0;
+let beta = 0, gamma = 0;
 
-let baseBeta = null;
-let baseGamma = null;
-let calCount = 0;
+let alapBeta = null;
+let alapGamma = null;
+let kalibracioDb = 0;
 
 /* =========================
-   STEP ENGINE (IMPORTANT)
+   LÉPÉS RENDSZER
 ========================= */
-let lastMag = 0;
-let stepTimes = [];
-const STEP_WINDOW = 2000;
-
-/* =========================
-   CONTROLLER API
-========================= */
-const Controller = (() => {
-
-    let state = {
-        mode: "idle",
-        move: 0,
-        turn: 0
-    };
-
-    return {
-        set: (s) => state = s,
-        get: () => state
-    };
-
-})();
+let utolsoMag = 0;
+let lepesIdok = [];
+const ABLAK = 2000;
 
 /* =========================
    UI
 ========================= */
-const stateEl = document.getElementById("state");
+const allapotEl = document.getElementById("allapot");
 const panel = document.getElementById("panel");
 const startBtn = document.getElementById("startBtn");
 
 /* =========================
-   PERMISSIONS
+   ENGEDÉLY
 ========================= */
-async function requestPermissions() {
+async function engedely() {
 
     try {
 
@@ -122,146 +104,132 @@ async function requestPermissions() {
 }
 
 /* =========================
-   START
+   INDÍTÁS
 ========================= */
 startBtn.onclick = async () => {
 
-    const ok = await requestPermissions();
+    const ok = await engedely();
 
     if (!ok) {
-        stateEl.textContent = "NO PERMISSION";
+        allapotEl.textContent = "NINCS ENGEDÉLY";
         return;
     }
 
-    window.addEventListener("deviceorientation", onOri);
-    window.addEventListener("devicemotion", onMot);
+    window.addEventListener("deviceorientation", ori);
+    window.addEventListener("devicemotion", mozgas);
 
-    running = true;
-    stateEl.textContent = "RUNNING";
+    fut = true;
+    allapotEl.textContent = "FUT";
 };
 
 /* =========================
-   SENSOR HANDLERS
+   SZENZOR
 ========================= */
-function onOri(e) {
+function ori(e) {
 
-    if (!running) return;
+    if (!fut) return;
 
-    alpha = e.alpha || 0;
     beta = e.beta || 0;
     gamma = e.gamma || 0;
 }
 
-function onMot(e) {
+function mozgas(e) {
 
-    if (!running) return;
+    if (!fut) return;
 
     const a = e.acceleration || {};
     const mag = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
 
-    process(mag, alpha, beta, gamma);
+    feldolgoz(mag, beta, gamma);
 }
 
 /* =========================
-   STEP DETECTOR
+   LÉPÉS DETEKTOR
 ========================= */
-function detectStep(mag) {
+function lepesDetektal(mag) {
 
-    const threshold = 1.1;
+    const kuszob = 1.1;
 
-    const isPeak = (mag > threshold && lastMag <= threshold);
+    const csucs = (mag > kuszob && utolsoMag <= kuszob);
 
-    lastMag = mag;
+    utolsoMag = mag;
 
-    if (isPeak) {
+    if (csucs) {
 
-        const now = Date.now();
-        stepTimes.push(now);
+        const most = Date.now();
+        lepesIdok.push(most);
 
-        // csak az utolsó 2 mp
-        stepTimes = stepTimes.filter(t => now - t < STEP_WINDOW);
+        lepesIdok = lepesIdok.filter(t => most - t < ABLAK);
     }
 }
 
 /* =========================
-   MOVE FROM STEPS
+   MOZGÁS SZÁMÍTÁS
 ========================= */
-function getMove() {
+function mozgasAllapot() {
 
-    const steps = stepTimes.length;
+    const db = lepesIdok.length;
 
-    if (steps >= 6) return 1;     // FUTÁS
-    if (steps >= 2) return 0.5;   // SÉTA
-    return 0;                     // ÁLL
+    if (db >= 6) return "FUTÁS";
+    if (db >= 2) return "SÉTA";
+    return "ÁLL";
 }
 
 /* =========================
-   CORE LOGIC
+   FŐ LOGIKA
 ========================= */
-function process(mag, a, b, g) {
+function feldolgoz(mag, b, g) {
 
-    /* --- CALIBRATION --- */
-    if (baseBeta === null && calCount < 30) {
+    /* --- KALIBRÁCIÓ --- */
+    if (alapBeta === null && kalibracioDb < 30) {
 
-        baseBeta = (baseBeta || 0) + b;
-        baseGamma = (baseGamma || 0) + g;
+        alapBeta = (alapBeta || 0) + b;
+        alapGamma = (alapGamma || 0) + g;
 
-        calCount++;
+        kalibracioDb++;
 
-        if (calCount === 30) {
-            baseBeta /= 30;
-            baseGamma /= 30;
+        if (kalibracioDb === 30) {
+            alapBeta /= 30;
+            alapGamma /= 30;
         }
 
-        stateEl.textContent = "CALIBRATING";
+        allapotEl.textContent = "KALIBRÁLÁS";
         return;
     }
 
-    const dTilt = g - baseGamma;
-    const dCrouch = b - baseBeta;
+    const dDőlés = g - alapGamma;
+    const dGuggolás = b - alapBeta;
 
-    /* --- MODE DETECTION --- */
-    let mode = "stand";
+    /* --- MÓD --- */
+    let mod = "ÁLLÁS";
 
-    if (dCrouch < -20) mode = "crouch";
-    else if (Math.abs(dTilt) > 30) mode = "tilt";
+    if (dGuggolás < -20) mod = "GUGGOL";
+    else if (Math.abs(dDőlés) > 30) mod = "DŐLÉS";
 
-    /* --- STEP ENGINE --- */
-    detectStep(mag);
-    const move = getMove();
+    /* --- LÉPÉS --- */
+    lepesDetektal(mag);
+    const mozgas = mozgasAllapot();
 
-    /* --- TURN LOGIC --- */
-    let turn = 0;
+    /* --- FORDULÁS --- */
+    let fordulas = 0;
 
-    if (mode === "stand") {
-        if (Math.abs(dTilt) > 25) {
-            turn = Math.max(-1, Math.min(1, dTilt / 60));
+    if (mod === "ÁLLÁS") {
+        if (Math.abs(dDőlés) > 25) {
+            fordulas = Math.max(-1, Math.min(1, dDőlés / 60));
         }
     }
 
-    /* --- OUTPUT --- */
-    const output = {
-        mode,
-        move,
-        turn
-    };
-
-    Controller.set(output);
-
-    /* --- UI --- */
-    const s = Controller.get();
-
-    stateEl.textContent = s.mode.toUpperCase();
+    /* --- KIJELZÉS --- */
+    allapotEl.textContent = mod;
 
     panel.textContent =
-        "MODE: " + s.mode + "\n" +
-        "MOVE: " + s.move.toFixed(2) + "\n" +
-        "TURN: " + s.turn.toFixed(2) + "\n\n" +
-        "STEPS: " + stepTimes.length + "\n" +
-        "dTilt: " + dTilt.toFixed(1) + "\n" +
-        "dCrouch: " + dCrouch.toFixed(1) + "\n" +
+        "ÁLLAPOT: " + mod + "\n" +
+        "MOZGÁS: " + mozgas + "\n" +
+        "FORDULÁS: " + fordulas.toFixed(2) + "\n\n" +
+        "LÉPÉSEK (2s): " + lepesIdok.length + "\n" +
+        "DŐLÉS: " + dDőlés.toFixed(1) + "\n" +
+        "GUGGOLÁS: " + dGuggolás.toFixed(1) + "\n" +
         "MAG: " + mag.toFixed(2);
-
 }
 
 </script>
