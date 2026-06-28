@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Játékvezérlő v9.3</title>
+<title>Fal-Kép Játékvezérlő v9.4</title>
 <style>
 body { margin: 0; font-family: sans-serif; background: #111; color: #fff; }
 .keret { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 12px; }
@@ -34,7 +34,7 @@ body { margin: 0; font-family: sans-serif; background: #111; color: #fff; }
 </div>
 
 <script>
-const VERZIÓ = "v9.3.0";
+const VERZIÓ = "v9.4.0";
 let fut = false;
 
 // Szenzor és szűrt adatok
@@ -44,7 +44,7 @@ let rax = 0, ray = 0, raz = 0;
 let utolsoParancs = "RELEASE";
 
 /* =========================================================================
-   LÉPÉSDETEKTOR VÁLTOZÓK (SZIGORÍTOTT HOLTTÉR)
+   LÉPÉSDETEKTOR VÁLTOZÓK
    ========================================================================= */
 let utolsoLepesIdo = 0;
 let lepesIdokozok = []; 
@@ -78,7 +78,7 @@ document.getElementById("inditas").onclick = async () => {
 function szenzor(e) {
     const a = e.accelerationIncludingGravity || {x:0, y:0, z:0};
     
-    // Aluláteresztő szűrő a kézremegés csillapítására
+    // Simító szűrő megtartása
     ax = ax * 0.75 + a.x * 0.25;
     ay = ay * 0.75 + a.y * 0.25;
     az = az * 0.75 + a.z * 0.25;
@@ -89,17 +89,12 @@ function szenzor(e) {
     }
 }
 
-/* =========================================================================
-   LÉPÉSDETEKTOR (HOLTTÉR + HISZTERÉZIS VÉDELEMMEL)
-   ========================================================================= */
 function detectLepes(jelenlegiDz) {
     const most = performance.now();
     
-    // Szigorúbb belépési küszöb: 1.8 m/s² feletti rázkódás kell, hogy egyáltalán lépésnek vegyük
-    if (Math.abs(jelenlegiDz) > 1.8 && Math.abs(utolsoGyorsulasZ) <= 1.8) {
-        
-        // Időbeli szűrés (240ms debounce), hogy a dőlésekből adódó rántásokat kilőjük
-        if (most - utolsoLepesIdo > 240) {
+    // Marad a szigorúbb lépésérzékelés, hogy dőléskor ne triggereljen be
+    if (Math.abs(jelenlegiDz) > 2.0 && Math.abs(utolsoGyorsulasZ) <= 2.0) {
+        if (most - utolsoLepesIdo > 250) {
             const idokoz = most - utolsoLepesIdo;
             utolsoLepesIdo = most;
             utolsoMozgasIdo = most; 
@@ -123,18 +118,17 @@ function kuldParancs(parancs) {
 }
 
 /* =========================================================================
-   FŐ ÁLLAPONGÉP
+   FŐ ÁLLAPONGÉP (KISZÉLESÍTETT ALAPÁLLAPOTTAL ÉS VÁLTÁSI KÜSZÖBÖKKEL)
    ========================================================================= */
 function feldolgoz() {
     const most = performance.now();
     const gyorsulasDeltaZ = az - raz;
 
-    // 1. SEBESSÉG KIÉRTÉKELÉSE ÉS MEGÁLLÁS-ZÁROLÁS
+    // 1. MOZGÁS/SEBESSÉG KIÉRTÉKELÉSE
     let mozgasAllapot = "STOP";
     let atlagIdokoz = 0;
 
-    // Hiszterézis: ha a rázkódás 0.6 alá esik, vagy eltelt 600ms lépés nélkül -> azonnali STOP
-    if (most - utolsoMozgasIdo < 600 && lepesIdokozok.length > 0 && Math.abs(gyorsulasDeltaZ) > 0.6) {
+    if (most - utolsoMozgasIdo < 600 && lepesIdokozok.length > 0 && Math.abs(gyorsulasDeltaZ) > 0.8) {
         atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
         if (atlagIdokoz < 420) {
             mozgasAllapot = "FUT";
@@ -142,10 +136,10 @@ function feldolgoz() {
             mozgasAllapot = "JAR";
         }
     } else {
-        lepesIdokozok = []; // Teljes ürítés a tiszta ALAPÁLLAPOTHOZ
+        lepesIdokozok = [];
     }
 
-    // 2. STATIKUS TENGELYEK KISZÁMÍTÁSA FOKBAN
+    // 2. TENGELYELTÉRÉSEK KISZÁMÍTÁSA FOKBAN
     const aktSzogX = Math.atan2(ax, ay) * 180 / Math.PI;
     const kalSzogX = Math.atan2(rax, ray) * 180 / Math.PI;
     let dolesX = aktSzogX - kalSzogX;
@@ -158,17 +152,28 @@ function feldolgoz() {
     if (dolesZ > 180) dolesZ -= 360;
     if (dolesZ < -180) dolesZ += 360;
 
-    // Statikus állapotok határai szigorú hiszterézissel
-    const isGuggol = gyorsulasDeltaZ > 2.8 || (utolsoParancs === "LE" && gyorsulasDeltaZ > 0.8);
-    const isFelNez = dolesZ > 14 || (utolsoParancs === "FEL" && dolesZ > 7);
-    const isBalraDolt = dolesX < -14 || (utolsoParancs === "BAL" && dolesX < -7);
-    const isJobbraDolt = dolesX > 14 || (utolsoParancs === "JOBB" && dolesX > 7);
+    /* =========================================================================
+       ÚJ, KISZÉLESÍTETT DEAD ZONE (HOLTTÉR) ÉS HISZTERÉZIS HATÁROK
+       ========================================================================= */
+    
+    // GUGGOLÁS (Z hirtelen elmozdulás delta)
+    // 3.2 m/s² felett vált lefelé, 1.2 m/s² felett tartja meg
+    const isGuggol = gyorsulasDeltaZ > 3.2 || (utolsoParancs === "LE" && gyorsulasDeltaZ > 1.2);
+
+    // FELFELÉ NÉZÉS (Z dőlésszög)
+    // 🔥 NAGYON MEGEMELVE: Csak 26 fok feletti bólintásra vált be, és 12 fok alatt enged fel!
+    const isFelNez = dolesZ > 26 || (utolsoParancs === "FEL" && dolesZ > 12);
+
+    // TÖRZSDÖNTÉS BALRA ÉS JOBBRA (X dőlésszög)
+    // Kiszélesítve: 18 fok felett dől be, 9 fok alatt esik vissza alapra
+    const isBalraDolt = dolesX < -18 || (utolsoParancs === "BAL" && dolesX < -9);
+    const isJobbraDolt = dolesX > 18 || (utolsoParancs === "JOBB" && dolesX > 9);
 
     /* =========================================================================
        PRIORITÁSI KIÉRTÉKELÉS
        ========================================================================= */
     
-    // Ha valóban mozgásban vagyunk (átléptük a szigorított küszöböt)
+    // Ha aktív a mozgás, az zárol mindent
     if (mozgasAllapot === "FUT") {
         document.getElementById("allapot").textContent = "🏃 FUTÁS";
         kuldParancs("FUT");
@@ -177,7 +182,7 @@ function feldolgoz() {
         document.getElementById("allapot").textContent = "🚶 JÁRÁS";
         kuldParancs("JAR");
     } 
-    // Ha megálltunk (STOP), újra működnek a statikus irányok
+    // Ha nincs mozgás, jöhetnek a statikus pózok
     else if (isGuggol) {
         document.getElementById("allapot").textContent = "GUGGOLÁS / LE";
         kuldParancs("LE");
@@ -191,7 +196,7 @@ function feldolgoz() {
         document.getElementById("allapot").textContent = "TÖRZSDÖNTÉS JOBBRA";
         kuldParancs("JOBB");
     } 
-    // VALÓDI ALAPÁLLAPOT (Ha senki sem aktív és nincs mozgás)
+    // TÁGAS, BIZTONSÁGOS ALAPÁLLAPOT (Ha senki sem lépte át a megnövelt holtteret)
     else {
         document.getElementById("allapot").textContent = "ALAP (ÁLL ÉS ELŐRE NÉZ)";
         kuldParancs("RELEASE");
