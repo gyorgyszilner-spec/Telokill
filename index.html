@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v5.0</title>
+<title>Fal-Kép Motor v5.1</title>
 
 <style>
 body {
@@ -48,9 +48,9 @@ body {
 
 <div class="keret">
 
-    <button id="inditas">Falhoz nyomás (kalibrálás)</button>
+    <button id="inditas">Falhoz kalibrálás</button>
 
-    <div id="verzio">v5.0.0</div>
+    <div id="verzio">v5.1.0</div>
 
     <div id="allapot">VÁRAKOZÁS</div>
 
@@ -63,15 +63,20 @@ body {
 /* =========================
    VERZIÓ
 ========================= */
-const VERZIÓ = "v5.0.0";
+const VERZIÓ = "v5.1.0";
 
 /* =========================
-   SZENZOR + REFERENCIA
+   SZENZOR
 ========================= */
 let fut = false;
 
 let gx = 0, gy = 0, gz = 0;
 let rgx = 0, rgy = 0, rgz = 0;
+
+/* =========================
+   ÁLLAPOT
+========================= */
+let allapot = "ALAP";
 
 /* =========================
    UI
@@ -97,7 +102,7 @@ async function engedely() {
 }
 
 /* =========================
-   INDÍTÁS (KALIBRÁCIÓ)
+   INDÍTÁS
 ========================= */
 inditas.onclick = async () => {
 
@@ -140,50 +145,64 @@ function szenzor(e) {
 }
 
 /* =========================
-   SAFE ZÓNA
+   DEADZONE + ÁTFEDÉS
 ========================= */
-function deadzone(v, hatar) {
-    return Math.abs(v) < hatar ? 0 : v;
+function deadzone(v, h) {
+    return Math.abs(v) < h ? 0 : v;
 }
 
 /* =========================
-   FŐ LOGIKA
+   FŐ LOGIKA (HISZTERÉZIS)
 ========================= */
 function feldolgoz() {
 
-    // relatív vektor
     const dx = gx - rgx;
     const dy = gy - rgy;
     const dz = gz - rgz;
 
-    // SAFE ZÓNA
-    const SAFE = 0.8;
+    // 🟩 NAGYOBB SAFE ZÓNA
+    const SAFE = 1.6;
 
     const x = deadzone(dx, SAFE);
     const y = deadzone(dy, SAFE);
     const z = deadzone(dz, SAFE);
 
-    // 🟡 DÖNTÉS (oldalirány)
+    // 🟡 DÖNTÉS
     let dontes = Math.atan2(x, y) * 180 / Math.PI;
 
-    // 🔴 GUGGOLÁS / EMELÉS
-    let guggolas = 0;
-    let emeles = 0;
+    // 🔁 ÁLLAPOT GÉP HISZTERÉZISSEL
+    let ujAllapot = allapot;
 
-    if (z < 0) guggolas = z;
-    if (z > 0) emeles = z;
+    // 🔴 GUGGOLÁS (MOST FELCSERÉLVE EMELÉSSEL)
+    const GUGG_BE = 4.0;
+    const GUGG_KI = 2.5;
 
-    // --- ÁLLAPOT ---
-    let allapot = "ALAP";
+    // 🔵 EMELÉS (régi guggolás helyén)
+    const EMEL_BE = -4.0;
+    const EMEL_KI = -2.5;
 
-    // 🔴 GUGGOLÁS prioritás
-    if (Math.abs(z) > 3) {
-        allapot = z < 0 ? "GUGGOLÁS" : "EMELÉS";
+    // --- GUGGOLÁS ---
+    if (allapot !== "GUGGOLÁS" && z < EMEL_BE) {
+        ujAllapot = "GUGGOLÁS";
     }
-    // 🟡 DÖNTÉS
-    else if (Math.abs(dontes) > 12) {
-        allapot = "DÖNTÉS";
+    if (allapot === "GUGGOLÁS" && z > EMEL_KI) {
+        ujAllapot = "ALAP";
     }
+
+    // --- EMELÉS ---
+    if (allapot !== "EMELÉS" && z > GUGG_BE) {
+        ujAllapot = "EMELÉS";
+    }
+    if (allapot === "EMELÉS" && z < GUGG_KI) {
+        ujAllapot = "ALAP";
+    }
+
+    // --- DÖNTÉS csak ha ALAP ---
+    if (ujAllapot === "ALAP" && Math.abs(dontes) > 14) {
+        ujAllapot = "DÖNTÉS";
+    }
+
+    allapot = ujAllapot;
 
     // --- UI ---
     allapotEl.textContent = allapot;
@@ -191,11 +210,8 @@ function feldolgoz() {
     panel.textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS (°): " + dontes.toFixed(2) + "\n" +
-        "GUGGOLÁS: " + guggolas.toFixed(2) + "\n" +
-        "EMELÉS: " + emeles.toFixed(2) + "\n\n" +
-        "X: " + x.toFixed(2) + "\n" +
-        "Y: " + y.toFixed(2) + "\n" +
-        "Z: " + z.toFixed(2);
+        "Z: " + z.toFixed(2) + "\n\n" +
+        "ÁLLAPOT: " + allapot;
 }
 
 </script>
