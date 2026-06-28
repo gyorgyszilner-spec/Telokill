@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v7.2.3</title>
+<title>Fal-Kép Motor v7.4.0</title>
 
 <style>
 body {
@@ -26,6 +26,7 @@ body {
     font-size: 34px;
     font-weight: bold;
     color: #00ffcc;
+    text-align: center;
 }
 
 #panel {
@@ -46,37 +47,36 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.2.3</div>
+    <div id="verzio">v7.4.0</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.2.3";
+const VERZIÓ = "v7.4.0";
 let fut = false;
 
-// Nyers és szűrt adatok (V7.2)
+// Nyers és szűrt adatok (V7.2.3)
 let ax = 0, ay = 0, az = 0;
 let rax = 0, ray = 0, raz = 0;
 
-// Állapotok (V7.2)
+// Állapotok (V7.2.3)
 let dontes = "SEMMI";
 let fuggoleges = "SEMMI";
 
 /* =========================================================================
-   JÁRÁS / FUTÁS ÉS DŐLÉSHULLÁM VÁLTOZÓI
+   JÁRÁS / FUTÁS ÉS MAGAS TÉRDEMELÉS VÁLTOZÓI
    ========================================================================= */
 let utolsoLepesIdo = 0;
 let lepesIdokozok = [];
+let lepesErok = []; // 🔥 ÚJ: A lépések becsapódási erejének (dz) tárolása
 let utolsoGyorsulasZ = 0;
 let utolsoMozgasIdo = 0;
 let mozgásÁllapot = "STOP";
 let mozgásZárolva = false;
-
-// Az előző ciklus dőlésszöge a változás sebességének (szög-deltának) méréséhez
 let utolsoSzog = 0;
 
-// Szenzor engedélyezés (V7.2)
+// Szenzor engedélyezés (V7.2.3)
 async function engedely() {
     try {
         if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) {
@@ -89,7 +89,7 @@ async function engedely() {
     }
 }
 
-// Indítás és Kalibráció (V7.2)
+// Indítás és Kalibráció (V7.2.3)
 document.getElementById("inditas").onclick = async () => {
     const ok = await engedely();
     if (!ok) {
@@ -120,7 +120,7 @@ function szenzor(e) {
 }
 
 /* =========================================================================
-   VALÓDI HOLTTÉR ÉS HISZTERÉZIS ÁLLAPONGÉP (V7.2)
+   VALÓDI HOLTTÉR ÉS HISZTERÉZIS ÁLLAPONGÉP (V7.2.3)
    ========================================================================= */
 function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszob) {
     if (jelenlegiState === "SEMMI") {
@@ -140,26 +140,27 @@ function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszo
 }
 
 /* =========================================================================
-   ÚJ, KETTŐS LÉPÉSDETEKTOR (RAZKÓDÁS ÉS TENGELYBILLEGÉS ALAPJÁN)
+   KETTŐS LÉPÉSDETEKTOR - ERŐRÖGZÍTÉSSEL KIEGÉSZÍTVE
    ========================================================================= */
-function detectLepes(jelenlegiDz, szogVáltozás) {
+function detectLepes(jelenlegiDz, szogValtozas) {
     const most = performance.now();
     
-    // 🔥 KÉT CSATORNÁS DETEKTÁLÁS:
-    // 1. csatorna: Van egy minimális függőleges rázkódás (|dz| > 0.8)
-    // 2. csatorna: VAGY a képernyő felső egyenesének dőlése hirtelen megváltozik (|szogVáltozás| > 1.9 fok / mintavétel)
     const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.8 && Math.abs(utolsoGyorsulasZ) <= 0.8;
-    const vanDőléshullámTüske = Math.abs(szogVáltozás) > 1.9;
+    const vanDőléshullámTüske = Math.abs(szogValtozas) > 1.9;
 
     if (vanFüggőlegesRázkódás || vanDőléshullámTüske) {
-        // Időbeli szűrés a stabil ritmusért
         if (most - utolsoLepesIdo > 180) {
             const idokoz = most - utolsoLepesIdo;
             utolsoLepesIdo = most;
             utolsoMozgasIdo = most;
 
+            // Időköz mentése a ritmushoz
             lepesIdokozok.push(idokoz);
             if (lepesIdokozok.length > 3) lepesIdokozok.shift();
+
+            // 🔥 ÚJ: Az aktuális függőleges becsapódás abszolút értékének mentése az erőhöz
+            lepesErok.push(Math.abs(jelenlegiDz));
+            if (lepesErok.length > 3) lepesErok.shift();
         }
     }
     utolsoGyorsulasZ = jelenlegiDz;
@@ -168,7 +169,7 @@ function detectLepes(jelenlegiDz, szogVáltozás) {
 function feldolgoz() {
     const most = performance.now();
 
-    // DŐLÉSSZÖG SZÁMÍTÁSA A LÉPÉSEKHEZ ÉS AZ EREDETI LOGIKÁHOZ
+    // DŐLÉSSZÖG SZÁMÍTÁSA (V7.2.3)
     const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
     const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
     
@@ -176,30 +177,46 @@ function feldolgoz() {
     if (dolesElteres > 180) dolesElteres -= 360;
     if (dolesElteres < -180) dolesElteres += 360;
 
-    // 🔥 Kiszámoljuk, hogy az előző mintavétel óta hány fokot billent el a telefon felső éle
     let szogValtozas = aktualisSzog - utolsoSzog;
     if (szogValtozas > 180) szogValtozas -= 360;
     if (szogValtozas < -180) szogValtozas += 360;
-    utolsoSzog = aktualisSzog; // Mentés a következő körre
+    utolsoSzog = aktualisSzog;
 
     const dz = az - raz;
 
-    // Lépésdetektáló meghívása a függőleges delta és az új szögváltozás beadásával
+    // Lépések gyűjtése (V7.2.3)
     detectLepes(dz, szogValtozas);
 
-    // 1. LÉPÉSRITMUS ÉS SEBESSÉG ELŐ-KIÉRTÉKELÉSE
+    // 1. LÉPÉSRITMUS ÉS 4-ÁLLAPOTÚ SEBESSÉG KIÉRTÉKELÉSE
     let aktualisSebesseg = "STOP";
+    let atlagEro = 0;
+
     if (most - utolsoMozgasIdo < 950 && lepesIdokozok.length > 0) {
         const atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
+        
+        // Kiszámoljuk az utolsó 3 lépés átlagos becsapódási erejét
+        if (lepesErok.length > 0) {
+            atlagEro = lepesErok.reduce((a, b) => a + b, 0) / lepesErok.length;
+        }
+
         if (lepesIdokozok.length >= 2) {
-            aktualisSebesseg = (atlagIdokoz < 450) ? "FUTÁS" : "JÁRÁS";
+            const isFutam = atlagIdokoz < 450;
+            // 🔥 Választóvonal: 1.5 m/s² felett magas térdemelés, alatta sima
+            const isMagasTerd = atlagEro > 1.5; 
+
+            if (isFutam) {
+                aktualisSebesseg = isMagasTerd ? "MAGAS TÉRD FUTÁS" : "FUTÁS";
+            } else {
+                aktualisSebesseg = isMagasTerd ? "MAGAS TÉRD JÁRÁS" : "JÁRÁS";
+            }
         }
     } else {
         lepesIdokozok = [];
+        lepesErok = [];
     }
 
     /* =========================================================================
-       ZÁROLÁSI LOGIKA (RETESZ)
+       ZÁROLÁSI LOGIKA (RETESZ - V7.2.3)
        ========================================================================= */
     if (mozgásZárolva) {
         if (aktualisSebesseg === "STOP") {
@@ -210,7 +227,7 @@ function feldolgoz() {
         }
     }
 
-    // 2. STATIKUS ÁLLAPOTOK (V7.2 SZERINT)
+    // 2. STATIKUS ÁLLAPOTOK (V7.2.3)
     if (!mozgásZárolva) {
         dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
         fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
@@ -221,7 +238,7 @@ function feldolgoz() {
         }
     }
 
-    // 3. MEGJELENÍTÉS ÉS HIERARCHIA (V7.2)
+    // 3. MEGJELENÍTÉS ÉS HIERARCHIA (V7.2.3)
     let kijelzendoAllapot = "ALAP";
     
     if (mozgásZárolva) {
@@ -234,12 +251,13 @@ function feldolgoz() {
 
     document.getElementById("allapot").textContent = kijelzendoAllapot;
 
-    // Debug panel az új dőléshullám telemetriával
+    // Debug panel frissítve az erő-átlag telemetriával
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
         "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n" +
         "MOZGÁS STÁTUSZ: " + mozgásÁllapot + "\n\n" +
+        "LÉPÉS ERŐ ÁTLAG:   " + atlagEro.toFixed(2) + " m/s²\n" +
         "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
         "SZÖG SEBESSÉG (fok/m): " + szogValtozas.toFixed(2) + "°\n" +
         "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
