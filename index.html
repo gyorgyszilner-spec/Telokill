@@ -1,356 +1,365 @@
-<!-- === 1. RÉSZ KEZDETE: CONTROLLER INTERFACE ÉS CSS v2.8.0 === -->
-<!DOCTYPE html>
-<html lang="hu">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Heatwave Absolute Brick Engine</title>
-    <style>
-        body { 
-            font-family: sans-serif; 
-            background: #111; 
-            color: #fff; 
-            padding: 0; 
-            margin: 0; 
-            overflow: hidden;
-            user-select: none;
-            -webkit-user-select: none;
-        }
-        .container { 
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-            box-sizing: border-box;
-            padding: 20px;
-        }
-        .version-tag { 
-            color: #00ffcc; 
-            font-weight: bold; 
-            font-size: 14px; 
-            position: absolute;
-            top: 15px;
-            letter-spacing: 1px; 
-        }
-        #startBtn { 
-            background: #ff5722; 
-            color: white; 
-            border: none; 
-            padding: 20px 40px; 
-            font-size: 24px; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            font-weight: bold; 
-            z-index: 10;
-        }
-        #live-state { 
-            font-size: 38px; 
-            font-weight: bold; 
-            margin: 10px 0; 
-            color: #ffeb3b; 
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            text-shadow: 0 0 15px rgba(255, 235, 59, 0.5);
-            text-align: center;
-        }
-        #live-zone {
-            font-size: 20px;
-            font-weight: bold;
-            color: #ff00ff;
-            margin-bottom: 5px;
-        }
-        #live-turn {
-            font-size: 24px;
-            font-weight: bold;
-            color: #00e5ff;
-            margin-bottom: 15px;
-        }
-        #debug-vals { 
-            font-size: 13px; 
-            font-family: monospace;
-            color: #666; 
-            text-align: center;
-            line-height: 1.4;
-        }
-        .ctrl-btn {
-            position: absolute;
-            width: 95px;
-            height: 95px;
-            border: 4px solid rgba(255, 255, 255, 0.25);
-            border-radius: 50%;
-            top: 50%;
-            transform: translateY(-50%);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-weight: bold;
-            font-size: 16px;
-            color: rgba(255, 255, 255, 0.35);
-            background: rgba(255, 255, 255, 0.02);
-            pointer-events: auto;
-        }
-        #leftBtn { left: 45px; }
-        #rightBtn { right: 45px; }
-        .ctrl-btn.active {
-            border-color: #00ffcc;
-            color: #00ffcc;
-            background: rgba(0, 255, 204, 0.15);
-            box-shadow: 0 0 15px rgba(0, 255, 204, 0.3);
-        }
-    </style>
-</head>
-<body>
+<!-- === 1. RÉSZ KEZDETE: STABIL INDÍTÓ RÉTEG v3 === -->
+<script>
 
-    <div class="container">
-        <!-- PONTOS v2.8.0 VERZIÓSZÁM -->
-        <div class="version-tag">VERZIÓ: v2.8.0 - ABSOLUTE BRICK ENGINE</div>
-        
-        <button id="startBtn">▶ MOTOR INDÍTÁSA</button>
+let isRecording = false;
 
-        <div id="live-state">KÉSZEN ÁLL</div>
-        <div id="live-zone">ZÓNA: INDÍTÁSRA VÁR</div>
-        <div id="live-turn">KÖZÉP</div>
-        
-        <div id="debug-vals">Szenzorok betöltése...</div>
+// UI elemek
+const startBtn = document.getElementById('startBtn');
+const liveStateDiv = document.getElementById('live-state');
+const liveZoneDiv = document.getElementById('live-zone');
+const liveTurnDiv = document.getElementById('live-turn');
+const debugValsDiv = document.getElementById('debug-vals');
 
-        <div id="leftBtn" class="ctrl-btn">BAL</div>
-        <div id="rightBtn" class="ctrl-btn">JOBB</div>
-    </div>
+// Rendszer állapot
+let systemState = "IDLE";
+let sensorAlive = false;
+let sensorWatchdog = null;
+
+// ==============================
+// 🔊 SPEAK
+// ==============================
+function speak(text) {
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        setTimeout(() => {
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'hu-HU';
+            u.rate = 1.0;
+            window.speechSynthesis.speak(u);
+        }, 50);
+    }
+}
+
+// ==============================
+// 📡 PERMISSION (iOS SAFE)
+// ==============================
+async function requestPermissions() {
+    try {
+        let motionGranted = true;
+        let orientGranted = true;
+
+        if (typeof DeviceMotionEvent !== 'undefined' &&
+            typeof DeviceMotionEvent.requestPermission === 'function') {
+
+            const res = await DeviceMotionEvent.requestPermission();
+            motionGranted = (res === 'granted');
+        }
+
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+
+            const res = await DeviceOrientationEvent.requestPermission();
+            orientGranted = (res === 'granted');
+        }
+
+        return motionGranted && orientGranted;
+
+    } catch (e) {
+        console.log("Permission error:", e);
+        return false;
+    }
+}
+
+// ==============================
+// 🚀 INDÍTÁS
+// ==============================
+startBtn.addEventListener('click', async () => {
+
+    systemState = "STARTING";
+
+    startBtn.disabled = true;
+    startBtn.textContent = "INDÍTÁS...";
+
+    liveStateDiv.textContent = "INDÍTÁS...";
+    debugValsDiv.textContent = "Szenzor inicializálás...";
+
+    // ⚠️ listener ELŐBB (iOS stabilitás miatt fontos)
+    window.addEventListener('deviceorientation', handleOrientation);
+    window.addEventListener('devicemotion', handleMotion);
+
+    const ok = await requestPermissions();
+
+    if (!ok) {
+        systemState = "ERROR_PERMISSION";
+
+        liveStateDiv.textContent = "SZENZOR MEGTAGADVA";
+        debugValsDiv.textContent = "Permission denied";
+
+        startBtn.disabled = false;
+        startBtn.textContent = "ÚJRAINDÍTÁS";
+        return;
+    }
+
+    // fullscreen + landscape (ha lehet)
+    try {
+        if (document.documentElement.requestFullscreen) {
+            await document.documentElement.requestFullscreen();
+        }
+        if (screen.orientation && screen.orientation.lock) {
+            await screen.orientation.lock('landscape');
+        }
+    } catch (e) {
+        console.log("Fullscreen/orientation not supported");
+    }
+
+    isRecording = true;
+    systemState = "CALIBRATING";
+
+    speak("Rendszer elindult. Kalibrálás folyamatban.");
+
+    // watchdog: ha nincs szenzor adat
+    sensorWatchdog = setTimeout(() => {
+        if (!sensorAlive) {
+            systemState = "ERROR_NO_SENSOR";
+
+            liveStateDiv.textContent = "NINCS SZENZOR ADAT";
+            debugValsDiv.textContent =
+                "Lehetséges ok: HTTPS hiányzik / böngésző tilt / iOS restriction";
+
+            startBtn.disabled = false;
+            startBtn.textContent = "ÚJRAINDÍTÁS";
+        }
+    }, 3000);
+});
+
 <!-- === 1. RÉSZ VÉGE === -->
 
+<!-- === 2. RÉSZ KEZDETE: SZENZOR INPUT STABILIZÁLÁS v3 === -->
 
-<!-- === 2. RÉSZ KEZDETE: ABSOLUTE BRICK LOGIKAI MÁTRIX === -->
-    <script>
-        let isRecording = false;
+// Globális szenzor állapot
+let orientAlpha = 0, orientBeta = 0, orientGamma = 0;
+let sensorAlive = false;
+let lastSensorTime = 0;
 
-        // HTML elemek referenciái
-        const startBtn = document.getElementById('startBtn');
-        const liveStateDiv = document.getElementById('live-state');
-        const liveZoneDiv = document.getElementById('live-zone');
-        const liveTurnDiv = document.getElementById('live-turn');
-        const debugValsDiv = document.getElementById('debug-vals');
-        const leftBtn = document.getElementById('leftBtn');
-        const rightBtn = document.getElementById('rightBtn');
+// ------------------------------
+// 📐 ORIENTATION (stabilizált)
+// ------------------------------
+function handleOrientation(event) {
+    if (!isRecording) return;
 
-        // Gombok vizuális visszajelzései
-        leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); leftBtn.classList.add('active'); });
-        leftBtn.addEventListener('touchend', () => { leftBtn.classList.remove('active'); });
-        rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); rightBtn.classList.add('active'); });
-        rightBtn.addEventListener('touchend', () => { rightBtn.classList.remove('active'); });
+    if (event.alpha !== null && !isNaN(event.alpha)) {
+        orientAlpha = event.alpha;
+    }
+    if (event.beta !== null && !isNaN(event.beta)) {
+        orientBeta = event.beta;
+    }
+    if (event.gamma !== null && !isNaN(event.gamma)) {
+        orientGamma = event.gamma;
+    }
 
-        // AUTOMATIKUS INDÍTÁSI KALIBRÁCIÓ VÁLTOZÓI
-        let baseAlpha = null, baseBeta = null, baseGamma = null;
-        let calLogsCount = 0;
+    sensorAlive = true;
+    lastSensorTime = performance.now();
+}
 
-        // SEBESSÉGMÉRŐ PUFFER (Séta/Futás simításához)
-        const BUFFER_SIZE = 12;
-        let magBuffer = [];
+// ------------------------------
+// 🏃 MOTION (stabilizált)
+// ------------------------------
+function handleMotion(event) {
+    if (!isRecording) return;
 
-        // IDŐABLAKOS UGRÁSSZŰRŐ VÁLTOZÓK
-        let airTimeStart = 0;
-        let jumpDetectedUntil = 0;
+    const acc = event.acceleration || event.accelerationIncludingGravity;
 
-        function speak(text) {
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel(); 
-                setTimeout(() => {
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    utterance.lang = 'hu-HU';
-                    utterance.rate = 1.0;
-                    window.speechSynthesis.speak(utterance);
-                }, 50);
+    let magnitude = 0;
+
+    if (acc &&
+        acc.x !== null && acc.y !== null && acc.z !== null &&
+        !isNaN(acc.x) && !isNaN(acc.y) && !isNaN(acc.z)) {
+
+        magnitude = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+    }
+
+    const rot = event.rotationRate;
+
+    let rotBeta = 0;
+    let rotGamma = 0;
+
+    if (rot) {
+        rotBeta = rot.beta || 0;
+        rotGamma = rot.gamma || 0;
+    }
+
+    // 🚨 sensor alive jelzés
+    sensorAlive = true;
+    lastSensorTime = performance.now();
+
+    // watchdog reset
+    if (sensorWatchdog) {
+        clearTimeout(sensorWatchdog);
+        sensorWatchdog = setTimeout(() => {
+            if (!sensorAlive) {
+                systemState = "ERROR_NO_SENSOR";
+                liveStateDiv.textContent = "NINCS SZENZOR ADAT";
+                debugValsDiv.textContent = "Sensor timeout (no motion data)";
+                startBtn.disabled = false;
+                startBtn.textContent = "ÚJRAINDÍTÁS";
             }
-        }
+        }, 3000);
+    }
 
-        function processSensors(rawMag, alpha, beta, gamma, rotBeta, rotGamma) {
-            if (!isRecording) return;
+    // továbbítás a logikai rétegnek
+    processSensors(magnitude, orientAlpha, orientBeta, orientGamma, rotBeta, rotGamma);
+}
 
-            // 1. INDÍTÁSI KALIBRÁCIÓ: Elmentjük a téglaként tartott telefon kiinduló 0-pontját
-            if (baseBeta === null && calLogsCount < 50) {
-                if (beta !== null && gamma !== null) {
-                    baseAlpha = (baseAlpha || 0) + alpha;
-                    baseBeta = (baseBeta || 0) + beta;
-                    baseGamma = (baseGamma || 0) + gamma;
-                    calLogsCount++;
-                    if (calLogsCount === 50) {
-                        baseAlpha /= 50;
-                        baseBeta /= 50;
-                        baseGamma /= 50;
-                    }
-                }
-                liveStateDiv.textContent = "KALIBRÁLÁS...";
-                return;
-            }
+// ------------------------------
+// ⏱ SENSOR HEARTBEAT CHECK
+// ------------------------------
+setInterval(() => {
+    if (!isRecording) return;
 
-            // 2. Rázkódási adatok gyűjtése a pufferbe
-            magBuffer.push(rawMag); if (magBuffer.length > BUFFER_SIZE) magBuffer.shift();
-            if (magBuffer.length < BUFFER_SIZE) return;
-            const mag = magBuffer.reduce((a, b) => a + b, 0) / magBuffer.length;
+    const now = performance.now();
 
-            const now = performance.now();
-            let zone = "ALAPÁLLÁS ZÓNA";
-            let state = "ÁLL";
-            let turn = "KÖZÉP";
+    if (sensorAlive && (now - lastSensorTime > 2500)) {
+        sensorAlive = false;
+        systemState = "ERROR_SENSOR_STALLED";
 
-            // RELATÍV ELMOZDULÁSOK A TE FIZIKAI TÉGLAMODELED ALAPJÁN
-            // Törzsdöntés: a tégla hosszú oldallapjai dőlnek meg oldalra (Gamma tengely méri fekvőben)
-            let relativeTilt = gamma - baseGamma;
-            
-            // Guggolás: a tégla rövid oldallapjai dőlnek el hátra, a kijelző felnéz az ég felé (Beta tengely méri)
-            let relativeCrouch = beta - baseBeta;
+        liveStateDiv.textContent = "SZENZOR MEGÁLLT";
+        debugValsDiv.textContent = "No sensor update (stalled stream)";
 
-            // 3. NYERS UGRÁS DETEKTÁLÁS (Pufferen kívül az azonnali reakcióért)
-            if (rawMag < 0.6) {
-                if (airTimeStart === 0) airTimeStart = now;
-            } else {
-                if (airTimeStart > 0 && rawMag > 3.8 && (now - airTimeStart) > 60) {
-                    jumpDetectedUntil = now + 600;
-                }
-                airTimeStart = 0;
-            }
+        startBtn.disabled = false;
+        startBtn.textContent = "ÚJRAINDÍTÁS";
+    }
+}, 2000);
 
-            // === EXKLUZÍV ZÓNÁK IRÁNYÍTÁSA A TE SZABÁLYAID SZERINT ===
-
-            // ZÓNA 1: GUGGOLÁS (A rövid oldalak megdőlnek, a kijelző az ég felé, azaz felfelé néz)
-            // A te kéztartásod szerint ez egy markáns elmozdulás a kalibrált nullaponthoz képest
-            if (relativeCrouch < -25.0) {
-                zone = "GUGGOLÁS ZÓNA";
-                state = "LE VAN GUGGOLVA (C-GOMB)";
-            }
-            // ZÓNA 2: TÖRZSDÖNTÉS (A hosszú oldalak állnak döntve, szigorú ±30 fokos holtzónán kívül)
-            else if (relativeTilt > 30.0) {
-                zone = "TÖRZSDÖNTÉS ZÓNA";
-                turn = "TÖRZSDÖNTÉS JOBBRA (E-GOMB)";
-                state = "SZLALOM AKTÍV";
-            } else if (relativeTilt < -30.0) {
-                zone = "TÖRZSDÖNTÉS ZÓNA";
-                turn = "TÖRZSDÖNTÉS BALRA (Q-GOMB)";
-                state = "SZLALOM AKTÍV";
-            }
-            // ZÓNA 3: ALAPÁLLÁS (A tégla egyenesen veled szemben áll, nincsenek zónadőlések)
-            else {
-                zone = "ALAPÁLLÁS ZÓNA";
-                turn = "KÖZÉP";
-
-                // 1. Törzsfordítás (Csak az alapzónában él, tiszta szögsebességből mérve)
-                if (rotBeta > 55 || rotGamma > 55) {
-                    turn = "FORDULÁS JOBBRA (EGÉR-JOBB)";
-                    state = "FORDULÁS KÖZBEN";
-                } else if (rotBeta < -55 || rotGamma < -55) {
-                    turn = "FORDULÁS BALRA (EGÉR-BAL)";
-                    state = "FORDULÁS KÖZBEN";
-                }
-                // 2. Haladási sebesség (Ha nincs fordulat, jön a séta és a futás)
-                else {
-                    if (now < jumpDetectedUntil) {
-                        state = "FELUGROTT!";
-                    } else if (mag > 2.0) {
-                        state = "FUT (ELŐRE-SPRINT)";
-                    } else if (mag > 0.7) {
-                        state = "SÉTÁL (ELŐRE-SÉTA)";
-                    } else {
-                        state = "ÁLL";
-                    }
-                }
-            }
-
-            // Élő felület frissítése
-            liveZoneDiv.textContent = `ZÓNA: ${zone}`;
-            liveStateDiv.textContent = state;
-            liveTurnDiv.textContent = turn;
-            debugValsDiv.textContent = `MAG: ${mag.toFixed(2)} | dCrouch (Beta): ${relativeCrouch.toFixed(1)}° | dTilt (Gamma): ${relativeTilt.toFixed(1)}°`;
-        }
 <!-- === 2. RÉSZ VÉGE === -->
 
+<!-- === 3. RÉSZ KEZDETE: MOZGÁS LOGIKA + KALIBRÁCIÓ v3 === -->
 
-<!-- === 3. RÉSZ KEZDETE: HARDVERES SZENZOROK ÖSSZEKÖTÉSE v2.8.0 === -->
-        // Globális változók a dőlésszögek átmeneti tárolására
-        let orientAlpha = 0, orientBeta = 0, orientGamma = 0;
+// ------------------------------
+// 🧱 KALIBRÁCIÓS ALAPOK
+// ------------------------------
+let baseAlpha = null, baseBeta = null, baseGamma = null;
+let calCount = 0;
+const CAL_MAX = 50;
 
-        // iOS 13+ engedélykérő ablak kezelése mindkét szenzorra
-        async function requestPermissions() {
-            try {
-                let motionGranted = true;
-                let orientGranted = true;
+// ------------------------------
+// 📦 MAG BUFFER (stabilizálás)
+// ------------------------------
+const BUFFER_SIZE = 10;
+let magBuffer = [];
 
-                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-                    const res = await DeviceMotionEvent.requestPermission();
-                    motionGranted = (res === 'granted');
-                }
-                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    const res = await DeviceOrientationEvent.requestPermission();
-                    orientGranted = (res === 'granted');
-                }
-                return motionGranted && orientGranted;
-            } catch(e) {
-                return true; // Androidon automatikusan engedélyezve van
-            }
+// ------------------------------
+// 🧠 FŐ PROCESSZOR
+// ------------------------------
+function processSensors(rawMag, alpha, beta, gamma, rotBeta, rotGamma) {
+
+    if (!isRecording) return;
+
+    // ==========================
+    // 1. KALIBRÁCIÓ
+    // ==========================
+    if (baseBeta === null && calCount < CAL_MAX) {
+
+        baseAlpha = (baseAlpha || 0) + alpha;
+        baseBeta = (baseBeta || 0) + beta;
+        baseGamma = (baseGamma || 0) + gamma;
+
+        calCount++;
+
+        liveStateDiv.textContent = "KALIBRÁLÁS...";
+
+        if (calCount === CAL_MAX) {
+            baseAlpha /= CAL_MAX;
+            baseBeta /= CAL_MAX;
+            baseGamma /= CAL_MAX;
         }
 
-        // A motor indítása a gombnyomásra
-        startBtn.addEventListener('click', async () => {
-            const hasPermission = await requestPermissions();
-            if (!hasPermission) {
-                alert("Szenzor hozzáférés megtagadva!");
-                return;
-            }
+        return;
+    }
 
-            // Képernyőzár és fekvő mód kényszerítése a kontroller hordozáshoz
-            try {
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen();
-                }
-                if (screen.orientation && screen.orientation.lock) {
-                    await screen.orientation.lock('landscape');
-                }
-            } catch(e) { 
-                console.log("Képernyőzár rögzítése nem támogatott."); 
-            }
+    // ==========================
+    // 2. MAGNITÚDUS SIMÍTÁS
+    // ==========================
+    magBuffer.push(rawMag);
 
-            startBtn.style.display = 'none';
-            isRecording = true;
+    if (magBuffer.length > BUFFER_SIZE) {
+        magBuffer.shift();
+    }
 
-            // Mindkét natív eseménykezelő feliratkoztatása
-            window.addEventListener('deviceorientation', handleOrientation);
-            window.addEventListener('devicemotion', handleMotion);
-            
-            speak("Az abszolút tégla motor elindult. Tartsd mozdulatlanul magad előtt a kalibráláshoz!");
-        });
+    const mag =
+        magBuffer.reduce((a, b) => a + b, 0) / magBuffer.length;
 
-        // 1. Abszolút szögek (Guggolás és Törzsdöntés ellenőrzéséhez)
-        function handleOrientation(event) {
-            if (!isRecording) return;
-            if (event.alpha !== null) orientAlpha = event.alpha;
-            if (event.beta !== null) orientBeta = event.beta;
-            if (event.gamma !== null) orientGamma = event.gamma;
+    // ==========================
+    // 3. RELATÍV SZÖGEK
+    // ==========================
+    const relativeTilt = gamma - baseGamma;
+    const relativeCrouch = beta - baseBeta;
+
+    let zone = "ALAP";
+    let state = "ÁLL";
+    let turn = "KÖZÉP";
+
+    // ==========================
+    // 4. GUGGOLÁS
+    // ==========================
+    if (relativeCrouch < -25) {
+        zone = "GUGGOLÁS";
+        state = "LE GUGGOLVA";
+    }
+
+    // ==========================
+    // 5. TÖRZSDÖNTÉS
+    // ==========================
+    else if (relativeTilt > 30) {
+        zone = "JOBB DŐLÉS";
+        state = "SZLALOM JOBBRA";
+        turn = "JOBB";
+    }
+
+    else if (relativeTilt < -30) {
+        zone = "BAL DŐLÉS";
+        state = "SZLALOM BALRA";
+        turn = "BAL";
+    }
+
+    // ==========================
+    // 6. ALAPÁLLÁS (MOZGÁS LOGIKA)
+    // ==========================
+    else {
+
+        if (rotBeta > 55 || rotGamma > 55) {
+            state = "FORDULÁS JOBBRA";
+            turn = "JOBB FORDULÁS";
         }
 
-        // 2. Gyorsulás és Szögsebesség (Séta, Futás, Ugrás és Törzsfordítás ellenőrzéséhez)
-        function handleMotion(event) {
-            if (!isRecording) return;
-
-            // Nyers gyorsulási vektor hossza
-            const acc = event.acceleration || event.accelerationIncludingGravity;
-            let magnitude = 0;
-            if (acc && acc.x !== null) {
-                magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
-            }
-
-            // Tiszta forgási szögsebességek lekérése (fok/másodperc)
-            const rot = event.rotationRate;
-            let rotBeta = 0, rotGamma = 0;
-            if (rot) {
-                rotBeta = rot.beta || 0;
-                rotGamma = rot.gamma || 0;
-            }
-
-            // Paraméterek átadása az új, tégla-alapú állapotgépnek
-            processSensors(magnitude, orientAlpha, orientBeta, orientGamma, rotBeta, rotGamma);
+        else if (rotBeta < -55 || rotGamma < -55) {
+            state = "FORDULÁS BALRA";
+            turn = "BAL FORDULÁS";
         }
-    </script>
-</body>
-</html>
+
+        else {
+            if (mag > 2.0) {
+                state = "FUT";
+            }
+            else if (mag > 0.7) {
+                state = "SÉTA";
+            }
+            else {
+                state = "ÁLL";
+            }
+        }
+    }
+
+    // ==========================
+    // 7. UGRÁS DETEKT
+    // ==========================
+    if (mag > 4.0) {
+        state = "UGRÁS";
+    }
+
+    // ==========================
+    // 8. UI FRISSÍTÉS
+    // ==========================
+    liveZoneDiv.textContent = "ZÓNA: " + zone;
+    liveStateDiv.textContent = state;
+    liveTurnDiv.textContent = turn;
+
+    debugValsDiv.textContent =
+        `MAG: ${mag.toFixed(2)} | ` +
+        `dCrouch: ${relativeCrouch.toFixed(1)} | ` +
+        `dTilt: ${relativeTilt.toFixed(1)}`;
+
+    systemState = "RUNNING";
+}
+
 <!-- === 3. RÉSZ VÉGE === -->
+
