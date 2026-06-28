@@ -114,7 +114,7 @@
     </div>
 <!-- === 1. RÉSZ VÉGE === -->
 
-<!-- === 2. RÉSZ KEZDETE: ABSOLUTE GYRO ÉS KORMÁNYZÁSI LOGIKA === -->
+<!-- === 2. RÉSZ KEZDETE: JAVÍTOTT DŐLÉS ÉS TÖRZSDÖNTÉS LOGIKA === -->
     <script>
         let isRecording = false;
 
@@ -155,7 +155,7 @@
         function processSensors(rawMag, alpha, beta, gamma, rotAlpha, rotBeta, rotGamma) {
             if (!isRecording) return;
 
-            // 1. Rázkódási adatok simítása
+            // 1. Rázkódási adatok simítása pufferrel
             magBuffer.push(rawMag); if (magBuffer.length > BUFFER_SIZE) magBuffer.shift();
             if (magBuffer.length < BUFFER_SIZE) return;
             const mag = magBuffer.reduce((a, b) => a + b, 0) / magBuffer.length;
@@ -164,32 +164,29 @@
             let state = "ÁLL";
             let turn = "KÖZÉP";
 
-            // 2. ABSZOLÚT GUGGOLÁS (A te kérésedre: ha a kijelző 45° és 90° között felfelé néz)
-            // Fekvő módban a Gamma vagy a Beta tengely jelzi ezt a dőlést az eszköz típusától függően
-            const isCrouched = (beta > 45 && beta < 90) || (gamma > 45 && gamma < 90);
+            // 2. ABSZOLÚT GUGGOLÁS (A kijelző felfelé, a szemed felé néz)
+            // Fekvő módban ha a Gamma érték tartósan megemelkedik (pl. > 25°), a kijelző felfelé dől
+            const isCrouched = (gamma > 25.0);
 
-            // 3. JAVÍTOTT ELFORDULÁS (Giroszkóp tiszta szögsebességből - Nincs elhangolódás!)
-            // Ha a forgási sebesség (rotBeta/rotGamma) határozott, akkor éppen fordul a törzs
+            // 3. JAVÍTOTT TÖRZSDÖNTÉS (Kormányzás helyett: szigorú ±30 fokos holtzónával!)
+            // Fekvő tájolásban az oldalra dőlést a Beta tengely méri az egyenes tartáshoz képest
+            if (beta > 30.0) {
+                turn = "DÖNTÉS JOBBRA";
+            } else if (beta < -30.0) {
+                turn = "DÖNTÉS BALRA";
+            } else {
+                turn = "KÖZÉP"; // Ha a 30 fokos tűrésen belül vagy, betonstabilan közép marad!
+            }
+
+            // 4. JAVÍTOTT ELFORDULÁS (Törzsfordítás szögsebességből)
             let isTurning = false;
-            if (rotBeta > 45 || rotGamma > 45) {
-                turn = "FORDULÁS JOBBRA";
+            if (Math.abs(rotBeta) > 50 || Math.abs(rotGamma) > 50) {
                 isTurning = true;
-            } else if (rotBeta < -45 || rotGamma < -45) {
-                turn = "FORDULÁS BALRA";
-                isTurning = true;
+                // Ha éppen hirtelen fordul a törzs, felülírjuk a turn feliratot nézelődésre
+                turn = (rotBeta > 0 || rotGamma > 0) ? "FORDULÁS JOBBRA" : "FORDULÁS BALRA";
             }
 
-            // 4. ÚJ: KORMÁNYZÁS / TÖRZSDÖNTÉS DETEKTÁLÁSA (Fixen legalább 30 fokos oldalra dőlésnél)
-            // Ha nem fordul a törzs, de a telefont elbillented mint a kormányt (Fekvő módban ez a Beta/Gamma dőlése)
-            if (!isTurning) {
-                if (beta < -30 || gamma < -30) {
-                    turn = "KORMÁNYZÁS BALRA (DÖNTÉS)";
-                } else if (beta > 30 || gamma > 30) {
-                    turn = "KORMÁNYZÁS JOBBRA (DÖNTÉS)";
-                }
-            }
-
-            // 5. UGRÁS SZŰRŐ (Nyers adatokból, pufferelés nélkül)
+            // 5. UGRÁS SZŰRŐ (Nyers adatokból, azonnali reakció)
             if (rawMag < 0.6) {
                 if (airTimeStart === 0) airTimeStart = now;
             } else {
@@ -203,23 +200,24 @@
             if (now < jumpDetectedUntil) {
                 state = "FELUGROTT!";
             } else if (isCrouched) { 
-                state = "LE VAN GUGGOLVA";
+                state = "LE VAN GUGGOLVA"; // Ha felnéz a kijelző, betonstabilan ez marad, nincs ugrálás!
             } else if (isTurning) {
-                state = "FORDULÁS KÖZBEN"; // Ha fordul a törzs, letiltjuk a hamis lépéseket!
+                state = "FORDULÁS KÖZBEN"; // Blokkolja a lépéseket fordulási ív alatt
             } else if (mag > 2.0) {      
                 state = "FUT";
             } else if (mag > 0.7) {      
                 state = "SÉTÁL";
             }
 
-            // Felület frissítése
+            // Felület frissítése a pontos dőlésszögekkel
             liveStateDiv.textContent = state;
             liveTurnDiv.textContent = turn;
-            debugValsDiv.textContent = `MAG: ${mag.toFixed(2)} | Ang-B: ${beta.toFixed(0)}° | Ang-G: ${gamma.toFixed(0)}° | Rot-B: ${rotBeta.toFixed(0)}`;
+            debugValsDiv.textContent = `MAG: ${mag.toFixed(2)} | Törzsdőlés (Beta): ${beta.toFixed(0)}° | Kijelződőlés (Gamma): ${gamma.toFixed(0)}°`;
         }
 <!-- === 2. RÉSZ VÉGE === -->
 
-<!-- === 3. RÉSZ KEZDETE: HARDVERES SZENZOROK ÖSSZEKÖTÉSE v2.5.0 === -->
+
+<!-- === 3. RÉSZ KEZDETE: SZOFTVERES ESZKÖZÖK ÉS SENSORS AKTIVÁLÁSA v2.6.1 === -->
         // Globális változók a dőlésszögek és forgási sebességek átmeneti tárolására
         let orientAlpha = 0, orientBeta = 0, orientGamma = 0;
 
@@ -270,10 +268,10 @@
             window.addEventListener('deviceorientation', handleOrientation);
             window.addEventListener('devicemotion', handleMotion);
             
-            speak("Az abszolút motor elindult. Használd a telefont kormányként!");
+            speak("A javított dőlésszög motor elindult. Használd a telefont kontrollerként!");
         });
 
-        // 1. Abszolút szögek (Guggolás és Kormányzás/Döntés ellenőrzéséhez)
+        // 1. Abszolút szögek (Guggolás és Törzsdöntés ellenőrzéséhez)
         function handleOrientation(event) {
             if (!isRecording) return;
             if (event.alpha !== null) orientAlpha = event.alpha;
@@ -285,14 +283,12 @@
         function handleMotion(event) {
             if (!isRecording) return;
 
-            // Nyers gyorsulási vektor hossza
             const acc = event.acceleration || event.accelerationIncludingGravity;
             let magnitude = 0;
             if (acc && acc.x !== null) {
                 magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
             }
 
-            // Tiszta forgási szögsebességek lekérése (fok/másodperc)
             const rot = event.rotationRate;
             let rotAlpha = 0, rotBeta = 0, rotGamma = 0;
             if (rot) {
@@ -301,7 +297,6 @@
                 rotGamma = rot.gamma || 0;
             }
 
-            // Mind a 7 paraméter átadása az új, intelligens állapotgépnek
             processSensors(magnitude, orientAlpha, orientBeta, orientGamma, rotAlpha, rotBeta, rotGamma);
         }
     </script>
