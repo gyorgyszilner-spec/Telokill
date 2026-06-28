@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v6.3</title>
+<title>Fal-Kép Motor v7.0</title>
 
 <style>
 body {
@@ -12,6 +12,7 @@ body {
     background: #111;
     color: #fff;
 }
+
 .keret {
     display: flex;
     flex-direction: column;
@@ -20,11 +21,13 @@ body {
     height: 100vh;
     gap: 12px;
 }
+
 #allapot {
     font-size: 34px;
     font-weight: bold;
     color: #00ffcc;
 }
+
 #panel {
     font-family: monospace;
     white-space: pre;
@@ -34,6 +37,7 @@ body {
     width: 92%;
     max-width: 440px;
 }
+
 #verzio { opacity: 0.7; }
 </style>
 </head>
@@ -41,121 +45,130 @@ body {
 <body>
 
 <div class="keret">
-
-<button id="inditas">Falhoz kalibrálás</button>
-
-<div id="verzio">v6.3.0</div>
-<div id="allapot">VÁRAKOZÁS</div>
-<div id="panel">NYOMD A FALHOZ</div>
-
+    <button id="inditas">Falhoz kalibrálás</button>
+    <div id="verzio">v7.0.0</div>
+    <div id="allapot">VÁRAKOZÁS</div>
+    <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
+const VERZIÓ = "v7.0.0";
+let fut = false;
 
-const VERZIÓ = "v6.3.0";
+// Nyers és szűrt adatok
+let ax = 0, ay = 0, az = 0;
+let rax = 0, ray = 0, raz = 0;
 
-let gx=0, gy=0, gz=0;
-let rgx=0, rgy=0, rgz=0;
-let fut=false;
+// Állapotok
+let dontes = "SEMMI";
+let fuggoleges = "SEMMI";
 
-/* =========================
-   ÁLLAPOTOK
-========================= */
-let dontes = "ALAP";
-let fuggoleges = "ALAP";
-
-/* =========================
-   INDÍTÁS
-========================= */
-document.getElementById("inditas").onclick = async () => {
-
-    window.addEventListener("devicemotion", e => {
-        const a = e.accelerationIncludingGravity || {x:0,y:0,z:0};
-        gx=a.x; gy=a.y; gz=a.z;
-        if(fut) update();
-    });
-
-    setTimeout(()=>{
-        rgx=gx; rgy=gy; rgz=gz;
-        fut=true;
-        document.getElementById("allapot").textContent="FUT";
-    },1200);
-};
-
-/* =========================
-   SEGÉD: ZÓNA
-========================= */
-function zone(v, dead, hold) {
-    return {
-        dead: Math.abs(v) < dead,
-        hold: Math.abs(v) < hold
-    };
+// Szenzor engedélyezés
+async function engedely() {
+    try {
+        if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) {
+            const r = await DeviceMotionEvent.requestPermission();
+            return r === "granted";
+        }
+        return true;
+    } catch {
+        return false;
+    }
 }
 
-/* =========================
-   DÖNTÉS MOTOR
-========================= */
-function update() {
-
-    const dx = gx - rgx;
-    const dy = gy - rgy;
-    const dz = gz - rgz;
-
-    const tilt = Math.atan2(dx, dy) * 180 / Math.PI;
-
-    const d = zone(tilt, 15, 25);
-
-    // 🧠 DÖNTÉS LOGIKA (stabil 3 sáv)
-    if (d.dead) {
-        dontes = "ALAP";
-    } else {
-        if (dontes === "ALAP") {
-            if (tilt > 25) dontes = "JOBB";
-            if (tilt < -25) dontes = "BAL";
-        } else {
-            if (Math.abs(tilt) < 18) {
-                dontes = "ALAP";
-            }
-        }
+// Indítás és Kalibráció
+document.getElementById("inditas").onclick = async () => {
+    const ok = await engedely();
+    if (!ok) {
+        alert("Szenzor hozzáférés megtagadva!");
+        return;
     }
 
-    /* =========================
-       GUGGOLÁS / EMELÉS
-    ========================= */
+    document.getElementById("allapot").textContent = "KALIBRÁLÁS...";
+    window.addEventListener("devicemotion", szenzor);
 
-    const z = zone(dz, 3, 6);
+    // 1.5 másodperces ablak a fizikai stabilizálódásra és alapérték rögzítésre
+    setTimeout(() => {
+        rax = ax;
+        ray = ay;
+        raz = az;
+        fut = true;
+        document.getElementById("allapot").textContent = "ALAP";
+    }, 1500);
+};
 
-    if (z.dead) {
-        fuggoleges = "ALAP";
-    } else {
-        if (fuggoleges === "ALAP") {
-            if (dz > 6) fuggoleges = "GUGGOLÁS";
-            if (dz < -6) fuggoleges = "EMELÉS";
-        } else {
-            if (Math.abs(dz) < 4) {
-                fuggoleges = "ALAP";
-            }
-        }
+function szenzor(e) {
+    // accelerationIncludingGravity-t használunk, mert a dőlésszöghöz kell a gravitáció
+    const a = e.accelerationIncludingGravity || {x:0, y:0, z:0};
+    
+    // Egyszerű aluláteresztő szűrő (Low-pass filter) a zajok és ugrálás kiszűrésére
+    ax = ax * 0.7 + a.x * 0.3;
+    ay = ay * 0.7 + a.y * 0.3;
+    az = az * 0.7 + a.z * 0.3;
+
+    if (fut) feldolgoz();
+}
+
+/* =========================================================================
+   VALÓDI HOLTTÉR ÉS HISZTERÉZIS ÁLLAPONGÉP
+   - beKuszob: Ezt átlépve váltunk ki SEMMI-ből (Dead Zone határa)
+   - kiKuszob: Ezen belülre kell visszatérni, hogy újra SEMMI legyen (Hiszterézis)
+   ========================================================================= */
+function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszob) {
+    if (jelenlegiState === "SEMMI") {
+        if (ertek > beKuszob) return posNev;
+        if (ertek < -beKuszob) return negNev;
+        return "SEMMI";
+    }
+    if (jelenlegiState === posNev) {
+        if (ertek < kiKuszob) return "SEMMI"; // Csak a belső határon belül esik vissza
+        return posNev;
+    }
+    if (jelenlegiState === negNev) {
+        if (ertek > -kiKuszob) return "SEMMI"; // Csak a belső határon belül esik vissza
+        return negNev;
+    }
+    return "SEMMI";
+}
+
+function feldolgoz() {
+    // 1. DÖNTÉS LOGIKA (Abszolút szögből számolva, nem a zajos különbségekből)
+    // A falhoz képest nézzük a dőlést fokban.
+    const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
+    const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
+    
+    // Kiszámoljuk a dőlés eltérését a kalibrált állapothoz képest
+    let dolesElteres = aktualisSzog - kalibraltSzog;
+    if (dolesElteres > 180) dolesElteres -= 360;
+    if (dolesElteres < -180) dolesElteres += 360;
+
+    // Döntés állapongép: 15 fok felett vált, de csak 8 fok alatt áll vissza alapra (Dead Zone)
+    dontes = vizsgalAllapot(dolesElteres, dontes, "BAL", "JOBB", 15, 8);
+
+    // 2. FÜGGŐLEGES MOZGÁS (A fal síkjára merőleges elmozdulás/gyorsulás)
+    // A tiszta lineáris delta méri a hirtelen emelést vagy guggolást
+    const dz = az - raz;
+
+    // Függőleges állapongép: Szigorúbb küszöbök (2.5 m/s² felett vált, 0.8 alatt áll vissza alapra)
+    fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 2.5, 0.8);
+
+    // 3. MEGJELENÍTÉS ÉS PRIORITÁS
+    let kijelzendoAllapot = "ALAP";
+    if (fuggoleges !== "SEMMI") {
+        kijelzendoAllapot = fuggoleges;
+    } else if (dontes !== "SEMMI") {
+        kijelzendoAllapot = "DÖNTÉS " + dontes;
     }
 
-    /* =========================
-       OUTPUT
-    ========================= */
-
-    let nagy = fuggoleges !== "ALAP"
-        ? fuggoleges
-        : dontes;
-
-    document.getElementById("allapot").textContent = nagy;
+    document.getElementById("allapot").textContent = kijelzendoAllapot;
 
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
-        "DÖNTÉS: " + dontes + "\n" +
-        "FÜGGŐLEGES: " + fuggoleges + "\n\n" +
-        "TILT: " + tilt.toFixed(2) + "\n" +
-        "Z: " + dz.toFixed(2);
+        "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
+        "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n\n" +
+        "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
+        "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
 }
-
 </script>
 
 </body>
