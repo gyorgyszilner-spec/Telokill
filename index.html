@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v6.0</title>
+<title>Fal-Kép Motor v6.1</title>
 
 <style>
 body {
@@ -48,9 +48,9 @@ body {
 
 <div class="keret">
 
-    <button id="inditas">Falhoz nyomás (kalibrálás)</button>
+    <button id="inditas">Falhoz kalibrálás</button>
 
-    <div id="verzio">v6.0.0</div>
+    <div id="verzio">v6.1.0</div>
 
     <div id="allapot">VÁRAKOZÁS</div>
 
@@ -60,7 +60,7 @@ body {
 
 <script>
 
-const VERZIÓ = "v6.0.0";
+const VERZIÓ = "v6.1.0";
 
 /* =========================
    SZENZOR
@@ -73,8 +73,8 @@ let rgx = 0, rgy = 0, rgz = 0;
 /* =========================
    ÁLLAPOTOK
 ========================= */
-let dontes = "SEMMI";     // BAL / JOBB / SEMMI
-let fuggoleges = "SEMMI"; // GUGGOLÁS / EMELÉS / SEMMI
+let dontes = "SEMMI";       // BAL / JOBB / SEMMI
+let fuggoleges = "SEMMI";   // EMELÉS / GUGGOLÁS / SEMMI
 
 /* =========================
    ENGEDÉLY
@@ -128,23 +128,37 @@ function szenzor(e) {
 }
 
 /* =========================
-   STATE MACHINE
+   STABIL STATE MACHINE
 ========================= */
-function stateMachine(value, state, negLabel, posLabel, be, ki) {
+function stateMachine(value, state, neg, pos, be, ki) {
 
-    let newState = state;
+    const CENTER = 15; // 🟢 stabil ALAP zóna
 
-    if (Math.abs(value) < ki) {
-        newState = "SEMMI";
-    }
-    else if (value > be) {
-        newState = posLabel;
-    }
-    else if (value < -be) {
-        newState = negLabel;
+    // 🟢 mindig SEMMI, ha középen van
+    if (Math.abs(value) < CENTER) {
+        return "SEMMI";
     }
 
-    return newState;
+    // belépés SEMMI-ből
+    if (state === "SEMMI") {
+        if (value > be) return pos;
+        if (value < -be) return neg;
+        return "SEMMI";
+    }
+
+    // tartás BAL/NEG
+    if (state === neg) {
+        if (value > -ki) return "SEMMI";
+        return neg;
+    }
+
+    // tartás JOBB/POS
+    if (state === pos) {
+        if (value < ki) return "SEMMI";
+        return pos;
+    }
+
+    return "SEMMI";
 }
 
 /* =========================
@@ -159,6 +173,7 @@ function feldolgoz() {
     /* -------------------------
        DÖNTÉS (BAL / JOBB)
     -------------------------- */
+
     const tiltRaw = Math.atan2(dx, dy) * 180 / Math.PI;
 
     dontes = stateMachine(
@@ -166,44 +181,45 @@ function feldolgoz() {
         dontes,
         "BAL",
         "JOBB",
-        20,
-        12
+        25,   // belépés
+        15    // kilépés
     );
 
     /* -------------------------
        GUGGOLÁS / EMELÉS
+       (FELIRATOK MÁR FELCSERÉLVE)
     -------------------------- */
+
     fuggoleges = stateMachine(
         dz,
         fuggoleges,
-        "GUGGOLÁS",
         "EMELÉS",
+        "GUGGOLÁS",
         5,
         3
     );
 
     /* -------------------------
-       KIJELZÉS
+       OUTPUT
     -------------------------- */
 
-    let nagyAllapot = "ALAP";
-
-    if (dontes !== "SEMMI") {
-        nagyAllapot = "DÖNTÉS " + dontes;
-    }
+    let nagy = "ALAP";
 
     if (fuggoleges !== "SEMMI") {
-        nagyAllapot = fuggoleges;
+        nagy = fuggoleges;
+    }
+    else if (dontes !== "SEMMI") {
+        nagy = "DÖNTÉS " + dontes;
     }
 
-    document.getElementById("allapot").textContent = nagyAllapot;
+    document.getElementById("allapot").textContent = nagy;
 
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS: " + dontes + "\n" +
         "FÜGGŐLEGES: " + fuggoleges + "\n\n" +
-        "RAW TILT: " + tiltRaw.toFixed(2) + "\n" +
-        "Z: " + dz.toFixed(2);
+        "TILT RAW: " + tiltRaw.toFixed(2) + "\n" +
+        "DZ: " + dz.toFixed(2);
 }
 
 </script>
