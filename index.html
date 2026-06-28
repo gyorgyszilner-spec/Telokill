@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v7.2</title>
+<title>Fal-Kép Motor v7.2.2</title>
 
 <style>
 body {
@@ -46,20 +46,20 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.2.0</div>
+    <div id="verzio">v7.2.2</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.2.0";
+const VERZIÓ = "v7.2.2";
 let fut = false;
 
-// Nyers és szűrt adatok
+// Nyers és szűrt adatok (V7.2)
 let ax = 0, ay = 0, az = 0;
 let rax = 0, ray = 0, raz = 0;
 
-// Állapotok
+// Állapotok (V7.2)
 let dontes = "SEMMI";
 let fuggoleges = "SEMMI";
 
@@ -71,9 +71,9 @@ let lepesIdokozok = [];
 let utolsoGyorsulasZ = 0;
 let utolsoMozgasIdo = 0;
 let mozgásÁllapot = "STOP";
-let mozgásZárolva = false; // 🔥 Ez a retesz felel a zárolásért megállásig
+let mozgásZárolva = false;
 
-// Szenzor engedélyezés
+// Szenzor engedélyezés (V7.2)
 async function engedely() {
     try {
         if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) {
@@ -86,7 +86,7 @@ async function engedely() {
     }
 }
 
-// Indítás és Kalibráció
+// Indítás és Kalibráció (V7.2)
 document.getElementById("inditas").onclick = async () => {
     const ok = await engedely();
     if (!ok) {
@@ -109,6 +109,7 @@ document.getElementById("inditas").onclick = async () => {
 function szenzor(e) {
     const a = e.accelerationIncludingGravity || {x:0, y:0, z:0};
     
+    // Marad a 70/30-as gyári szűrő, hogy a dőlések ne változzanak
     ax = ax * 0.7 + a.x * 0.3;
     ay = ay * 0.7 + a.y * 0.3;
     az = az * 0.7 + a.z * 0.3;
@@ -120,7 +121,7 @@ function szenzor(e) {
 }
 
 /* =========================================================================
-   VALÓDI HOLTTÉR ÉS HISZTERÉZIS ÁLLAPONGÉP
+   VALÓDI HOLTTÉR ÉS HISZTERÉZIS ÁLLAPONGÉP (V7.2)
    ========================================================================= */
 function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszob) {
     if (jelenlegiState === "SEMMI") {
@@ -140,13 +141,16 @@ function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszo
 }
 
 /* =========================================================================
-   LÉPÉSDETEKTOR
+   FINOMHANGOLT LÉPÉSDETEKTOR (GIMBAL ELLENI VÉDELEM)
    ========================================================================= */
 function detectLepes(jelenlegiDz) {
     const most = performance.now();
     
-    if (Math.abs(jelenlegiDz) > 1.6 && Math.abs(utolsoGyorsulasZ) <= 1.6) {
-        if (most - utolsoLepesIdo > 220) {
+    // 🔥 FINOMÍTÁS: Küszöb leengedve 1.6-ról 0.8 m/s²-re! 
+    // Így a kéz által letompított mikro-rázkódásokat is stabilan észreveszi.
+    if (Math.abs(jelenlegiDz) > 0.8 && Math.abs(utolsoGyorsulasZ) <= 0.8) {
+        // Minimális időköz két toporgás között (180ms-ra szűkítve a gyors helybenfutáshoz)
+        if (most - utolsoLepesIdo > 180) {
             const idokoz = most - utolsoLepesIdo;
             utolsoLepesIdo = most;
             utolsoMozgasIdo = most;
@@ -163,28 +167,33 @@ function feldolgoz() {
 
     // 1. LÉPÉSRITMUS ÉS SEBESSÉG ELŐ-KIÉRTÉKELÉSE
     let aktualisSebesseg = "STOP";
-    if (most - utolsoMozgasIdo < 650 && lepesIdokozok.length > 0) {
+    
+    // 🔥 FINOMÍTÁS: Megnövelt időablak (650ms helyett 950ms)!
+    // Ha a kéz tompítása miatt kimarad egy lépés, a mozgás állapota nem esik szét azonnal.
+    if (most - utolsoMozgasIdo < 950 && lepesIdokozok.length > 0) {
         const atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
-        aktualisSebesseg = (atlagIdokoz < 420) ? "FUTÁS" : "JÁRÁS";
+        
+        if (lepesIdokozok.length >= 2) {
+            // Helyben toporgásnál a ritmus tágabb, így a futás határa 450ms-ra lett igazítva
+            aktualisSebesseg = (atlagIdokoz < 450) ? "FUTÁS" : "JÁRÁS";
+        }
     } else {
         lepesIdokozok = [];
     }
 
     /* =========================================================================
        ZÁROLÁSI LOGIKA (RETESZ)
-       - Ha már mozgásban vagyunk, nem engedjük kiértékelni a statikus irányokat.
-       - Csak akkor oldunk fel, ha a sebesség visszaesik "STOP"-ra.
        ========================================================================= */
     if (mozgásZárolva) {
         if (aktualisSebesseg === "STOP") {
-            mozgásZárolva = false; // Feloldás 0 sebességnél
+            mozgásZárolva = false;
             mozgásÁllapot = "STOP";
         } else {
-            mozgásÁllapot = aktualisSebesseg; // Tartja a járást/futást menet közben
+            mozgásÁllapot = aktualisSebesseg;
         }
     }
 
-    // 2. STATIKUS ÁLLAPOTOK (Csak akkor frissülnek, ha nincs aktív mozgás-zárolás)
+    // 2. STATIKUS ÁLLAPOTOK (V7.2)
     const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
     const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
     
@@ -195,25 +204,20 @@ function feldolgoz() {
     const dz = az - raz;
 
     if (!mozgásZárolva) {
-        // 🔥 KISZÉLESÍTETT KÜSZÖBÖK: 15/8 helyett 22/10 fok a tágasabb alapállapotért
-        // 🔥 FIX: "BAL" és "JOBB" megcserélése a paraméterekben
+        // Gyári v7.2-es stabil határértékek megtartása
         dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
-
-        // KISZÉLESÍTETT KÜSZÖBÖK: 2.5/0.8 helyett 3.2/1.0 m/s² függőleges mozgásnál
         fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
 
-        // Ha a statikus állapotok alapon vannak ("SEMMI") ÉS észlelünk új lépést, bereteszelünk mozgásra
         if (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg !== "STOP") {
             mozgásZárolva = true;
             mozgásÁllapot = aktualisSebesseg;
         }
     }
 
-    // 3. MEGJELENÍTÉS ÉS HIERARCHIA
+    // 3. MEGJELENÍTÉS ÉS HIERARCHIA (V7.2)
     let kijelzendoAllapot = "ALAP";
     
     if (mozgásZárolva) {
-        // Ha be van reteszelve a mozgás, az felülbírál mindent a teljes leállásig
         kijelzendoAllapot = mozgásÁllapot;
     } else if (fuggoleges !== "SEMMI") {
         kijelzendoAllapot = fuggoleges;
@@ -223,12 +227,13 @@ function feldolgoz() {
 
     document.getElementById("allapot").textContent = kijelzendoAllapot;
 
-    // Debug panel
+    // Debug panel frissítve a pontos mikro-értékekkel
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
         "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n" +
-        "MOZGÁS STÁTUSZ: " + mozgásÁllapot + " (Zárolva: " + mozgásZárolva + ")\n\n" +
+        "MOZGÁS STÁTUSZ: " + mozgásÁllapot + "\n" +
+        "ÁTLAG RITMUS: " + (lepesIdokozok.length > 0 ? (lepesIdokozok.reduce((a,b)=>a+b,0)/lepesIdokozok.length).toFixed(0) + " ms" : "0 ms") + "\n\n" +
         "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
         "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
 }
