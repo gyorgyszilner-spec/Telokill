@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v6.2</title>
+<title>Fal-Kép Motor v6.3</title>
 
 <style>
 body {
@@ -12,7 +12,6 @@ body {
     background: #111;
     color: #fff;
 }
-
 .keret {
     display: flex;
     flex-direction: column;
@@ -21,13 +20,11 @@ body {
     height: 100vh;
     gap: 12px;
 }
-
 #allapot {
     font-size: 34px;
     font-weight: bold;
     color: #00ffcc;
 }
-
 #panel {
     font-family: monospace;
     white-space: pre;
@@ -37,7 +34,6 @@ body {
     width: 92%;
     max-width: 440px;
 }
-
 #verzio { opacity: 0.7; }
 </style>
 </head>
@@ -46,161 +42,109 @@ body {
 
 <div class="keret">
 
-    <button id="inditas">Falhoz kalibrálás</button>
+<button id="inditas">Falhoz kalibrálás</button>
 
-    <div id="verzio">v6.2.0</div>
-
-    <div id="allapot">VÁRAKOZÁS</div>
-
-    <div id="panel">NYOMD A FALHOZ</div>
+<div id="verzio">v6.3.0</div>
+<div id="allapot">VÁRAKOZÁS</div>
+<div id="panel">NYOMD A FALHOZ</div>
 
 </div>
 
 <script>
 
-const VERZIÓ = "v6.2.0";
+const VERZIÓ = "v6.3.0";
 
-let fut = false;
-
-let gx = 0, gy = 0, gz = 0;
-let rgx = 0, rgy = 0, rgz = 0;
+let gx=0, gy=0, gz=0;
+let rgx=0, rgy=0, rgz=0;
+let fut=false;
 
 /* =========================
    ÁLLAPOTOK
 ========================= */
-let dontes = "SEMMI";      // BAL / JOBB / SEMMI
-let fuggoleges = "SEMMI";  // EMELÉS / GUGGOLÁS / SEMMI
+let dontes = "ALAP";
+let fuggoleges = "ALAP";
 
 /* =========================
-   ENGEDÉLY
-========================= */
-async function engedely() {
-    try {
-        if (DeviceMotionEvent?.requestPermission) {
-            const r = await DeviceMotionEvent.requestPermission();
-            if (r !== "granted") return false;
-        }
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-/* =========================
-   INDÍTÁS + KALIBRÁCIÓ
+   INDÍTÁS
 ========================= */
 document.getElementById("inditas").onclick = async () => {
 
-    const ok = await engedely();
-    if (!ok) return;
+    window.addEventListener("devicemotion", e => {
+        const a = e.accelerationIncludingGravity || {x:0,y:0,z:0};
+        gx=a.x; gy=a.y; gz=a.z;
+        if(fut) update();
+    });
 
-    document.getElementById("allapot").textContent = "NYOMD A FALHOZ";
-
-    window.addEventListener("devicemotion", szenzor);
-
-    setTimeout(() => {
-
-        // 🔥 stabil 0-ra húzás (nem csak egy minta)
-        rgx = gx;
-        rgy = gy;
-        rgz = gz;
-
-        fut = true;
-        document.getElementById("allapot").textContent = "FUT";
-    }, 1200);
+    setTimeout(()=>{
+        rgx=gx; rgy=gy; rgz=gz;
+        fut=true;
+        document.getElementById("allapot").textContent="FUT";
+    },1200);
 };
 
 /* =========================
-   SZENZOR
+   SEGÉD: ZÓNA
 ========================= */
-function szenzor(e) {
-    const a = e.accelerationIncludingGravity || {x:0,y:0,z:0};
-
-    gx = a.x;
-    gy = a.y;
-    gz = a.z;
-
-    if (fut) feldolgoz();
+function zone(v, dead, hold) {
+    return {
+        dead: Math.abs(v) < dead,
+        hold: Math.abs(v) < hold
+    };
 }
 
 /* =========================
-   STATE MACHINE (STABIL)
+   DÖNTÉS MOTOR
 ========================= */
-function stateMachine(value, state, neg, pos, be, ki) {
-
-    // nincs brutál közép reset!
-    // csak finom hiszterézis
-
-    if (state === "SEMMI") {
-        if (value > be) return pos;
-        if (value < -be) return neg;
-        return "SEMMI";
-    }
-
-    if (state === neg) {
-        if (value > -ki) return "SEMMI";
-        return neg;
-    }
-
-    if (state === pos) {
-        if (value < ki) return "SEMMI";
-        return pos;
-    }
-
-    return "SEMMI";
-}
-
-/* =========================
-   FŐ LOGIKA
-========================= */
-function feldolgoz() {
+function update() {
 
     const dx = gx - rgx;
     const dy = gy - rgy;
     const dz = gz - rgz;
 
-    /* -------------------------
-       DÖNTÉS (FIX IRÁNY!)
-       👉 INVERTÁLT atan2
-    -------------------------- */
+    const tilt = Math.atan2(dx, dy) * 180 / Math.PI;
 
-    const tiltRaw = Math.atan2(dx, dy) * 180 / Math.PI;
+    const d = zone(tilt, 15, 25);
 
-    // 🔥 FIX: BAL/JOBB CSERE
-    dontes = stateMachine(
-        -tiltRaw,   // <- EZ A LÉNYEG
-        dontes,
-        "BAL",
-        "JOBB",
-        25,
-        15
-    );
+    // 🧠 DÖNTÉS LOGIKA (stabil 3 sáv)
+    if (d.dead) {
+        dontes = "ALAP";
+    } else {
+        if (dontes === "ALAP") {
+            if (tilt > 25) dontes = "JOBB";
+            if (tilt < -25) dontes = "BAL";
+        } else {
+            if (Math.abs(tilt) < 18) {
+                dontes = "ALAP";
+            }
+        }
+    }
 
-    /* -------------------------
+    /* =========================
        GUGGOLÁS / EMELÉS
-    -------------------------- */
+    ========================= */
 
-    fuggoleges = stateMachine(
-        dz,
-        fuggoleges,
-        "EMELÉS",
-        "GUGGOLÁS",
-        5,
-        3
-    );
+    const z = zone(dz, 3, 6);
 
-    /* -------------------------
-       PRIORITÁS
-    -------------------------- */
-
-    let nagy = "ALAP";
-
-    if (fuggoleges !== "SEMMI") {
-        nagy = fuggoleges;
+    if (z.dead) {
+        fuggoleges = "ALAP";
+    } else {
+        if (fuggoleges === "ALAP") {
+            if (dz > 6) fuggoleges = "GUGGOLÁS";
+            if (dz < -6) fuggoleges = "EMELÉS";
+        } else {
+            if (Math.abs(dz) < 4) {
+                fuggoleges = "ALAP";
+            }
+        }
     }
-    else if (dontes !== "SEMMI") {
-        nagy = "DÖNTÉS " + dontes;
-    }
+
+    /* =========================
+       OUTPUT
+    ========================= */
+
+    let nagy = fuggoleges !== "ALAP"
+        ? fuggoleges
+        : dontes;
 
     document.getElementById("allapot").textContent = nagy;
 
@@ -208,9 +152,8 @@ function feldolgoz() {
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS: " + dontes + "\n" +
         "FÜGGŐLEGES: " + fuggoleges + "\n\n" +
-        "TILT RAW: " + tiltRaw.toFixed(2) + "\n" +
-        "DX: " + dx.toFixed(2) + "\n" +
-        "DZ: " + dz.toFixed(2);
+        "TILT: " + tilt.toFixed(2) + "\n" +
+        "Z: " + dz.toFixed(2);
 }
 
 </script>
