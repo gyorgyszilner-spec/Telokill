@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Helyzetdetektor v1.0.0</title>
+<title>Fal-Kép Motor v1.0.0</title>
 
 <style>
 body {
@@ -13,13 +13,13 @@ body {
     color: #fff;
 }
 
-.wrap {
+.keret {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100vh;
-    gap: 15px;
+    gap: 12px;
 }
 
 #allapot {
@@ -42,9 +42,9 @@ body {
 
 <body>
 
-<div class="wrap">
+<div class="keret">
 
-    <button id="startBtn">Szenzor indítása</button>
+    <button id="inditas">Szenzor indítása</button>
 
     <div id="verzio">v1.0.0</div>
 
@@ -66,8 +66,8 @@ const VERZIO = "v1.0.0";
 ========================= */
 let fut = false;
 
-let beta = 0;
-let gamma = 0;
+let beta = 0;   // előre-hátra dőlés
+let gamma = 0;  // oldal dőlés
 
 let alapBeta = null;
 let alapGamma = null;
@@ -76,12 +76,12 @@ let kalibracioDb = 0;
 /* =========================
    UI
 ========================= */
-const allapotEl = document.getElementById("allapot");
+const allapot = document.getElementById("allapot");
 const panel = document.getElementById("panel");
-const verzioEl = document.getElementById("verzio");
-const startBtn = document.getElementById("startBtn");
+const inditas = document.getElementById("inditas");
+const verzio = document.getElementById("verzio");
 
-verzioEl.textContent = "VERZIÓ: " + VERZIO;
+verzio.textContent = "VERZIÓ: " + VERZIO;
 
 /* =========================
    ENGEDÉLY
@@ -110,32 +110,32 @@ async function engedely() {
 /* =========================
    INDÍTÁS
 ========================= */
-startBtn.onclick = async () => {
+inditas.onclick = async () => {
 
     const ok = await engedely();
 
     if (!ok) {
-        allapotEl.textContent = "NINCS ENGEDÉLY";
+        allapot.textContent = "NINCS ENGEDÉLY";
         return;
     }
 
-    window.addEventListener("deviceorientation", onOri);
+    window.addEventListener("deviceorientation", szenzor);
 
     fut = true;
-    allapotEl.textContent = "INDUL";
+    allapot.textContent = "FUT";
 };
 
 /* =========================
    SZENZOR
 ========================= */
-function onOri(e) {
+function szenzor(e) {
 
     if (!fut) return;
 
-    beta = e.beta || 0;   // előre-hátra dőlés
-    gamma = e.gamma || 0; // oldal dőlés
+    beta = e.beta || 0;
+    gamma = e.gamma || 0;
 
-    process();
+    feldolgoz();
 }
 
 /* =========================
@@ -162,48 +162,48 @@ function kalibral() {
 }
 
 /* =========================
-   ÁLLAPOT DETEKTOR
+   ÁLLAPOT LOGIKA
 ========================= */
-function getAllapot(dBeta, dGamma) {
+function allapotSzamitas(ferdeseg, kinyilas) {
 
-    /* 1. LEGGUGGOLT */
-    if (dBeta < -35) {
-        return "LEGGUGGOLT ÁLLAPOT";
+    // 🔴 GUGGOLÁS: elválik a faltól
+    if (kinyilas > 25) {
+        return "GUGGOLÁS";
     }
 
-    /* 2. FÖNTÖTT (döntött a padlóhoz képest) */
-    if (Math.abs(dGamma) > 25) {
-        return "FÖNTÖTT ÁLLAPOT";
+    // 🟡 DÖNTÖTT: ferde a falon
+    if (Math.abs(ferdeseg) > 15) {
+        return "DÖNTÖTT";
     }
 
-    /* 3. ALAP */
+    // 🟢 ALAP
     return "ALAPÁLLAPOT";
 }
 
 /* =========================
-   FŐ LOGIKA
+   FŐ FOLYAMAT
 ========================= */
-function process() {
+function feldolgoz() {
 
     if (!kalibral()) {
-        allapotEl.textContent = "KALIBRÁLÁS...";
+        allapot.textContent = "KALIBRÁLÁS...";
         return;
     }
 
-    const dBeta = beta - alapBeta;
-    const dGamma = gamma - alapGamma;
+    const ferdeseg = gamma - alapGamma;   // falon belüli forgás
+    const kinyilas = Math.abs(beta - alapBeta); // falról elválás érzete
 
-    const allapot = getAllapot(dBeta, dGamma);
+    const all = allapotSzamitas(ferdeseg, kinyilas);
 
-    allapotEl.textContent = allapot;
+    allapot.textContent = all;
 
     panel.textContent =
         "VERZIÓ: " + VERZIO + "\n\n" +
         "BETA: " + beta.toFixed(1) + "\n" +
         "GAMMA: " + gamma.toFixed(1) + "\n\n" +
-        "dBETA: " + dBeta.toFixed(1) + "\n" +
-        "dGAMMA: " + dGamma.toFixed(1) + "\n\n" +
-        "ÁLLAPOT: " + allapot;
+        "FERDESÉG: " + ferdeseg.toFixed(1) + "\n" +
+        "KINYÍLÁS: " + kinyilas.toFixed(1) + "\n\n" +
+        "ÁLLAPOT: " + all;
 }
 
 </script>
