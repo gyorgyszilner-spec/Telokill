@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fal-Kép Motor v3.0</title>
+<title>Fal-Kép Motor v4.0</title>
 
 <style>
 body {
@@ -48,9 +48,9 @@ body {
 
 <div class="keret">
 
-    <button id="inditas">Falhoz nyomás (kalibrálás)</button>
+    <button id="inditas">Falhoz kalibrálás</button>
 
-    <div id="verzio">v3.0.0</div>
+    <div id="verzio">v4.0.0</div>
 
     <div id="allapot">VÁRAKOZÁS</div>
 
@@ -63,23 +63,18 @@ body {
 /* =========================
    VERZIÓ
 ========================= */
-const VERZIÓ = "v3.0.0";
+const VERZIÓ = "v4.0.0";
 
 /* =========================
    SZENZOR
 ========================= */
 let fut = false;
 
-let beta = 0;   // guggolás tengely
-let gamma = 0;  // döntés tengely
+/* gravitáció vektor */
+let gx = 0, gy = 0, gz = 0;
 
-let alapBeta = null;
-let alapGamma = null;
-
-/* =========================
-   ÁLLAPOT
-========================= */
-let allapot = "ALAP";
+/* referencia (falhoz nyomott állapot) */
+let rgx = 0, rgy = 0, rgz = 0;
 
 /* =========================
    UI
@@ -94,8 +89,8 @@ const inditas = document.getElementById("inditas");
 async function engedely() {
 
     try {
-        if (DeviceOrientationEvent?.requestPermission) {
-            const r = await DeviceOrientationEvent.requestPermission();
+        if (DeviceMotionEvent?.requestPermission) {
+            const r = await DeviceMotionEvent.requestPermission();
             if (r !== "granted") return false;
         }
         return true;
@@ -105,7 +100,7 @@ async function engedely() {
 }
 
 /* =========================
-   INDÍTÁS = FALHOZ NYOMÁS
+   INDÍTÁS = KALIBRÁLÁS
 ========================= */
 inditas.onclick = async () => {
 
@@ -115,18 +110,19 @@ inditas.onclick = async () => {
         return;
     }
 
-    // 📌 EZ A LÉNYEG: FIX REFERENCIA
-    window.addEventListener("deviceorientation", szenzor);
-
     allapotEl.textContent = "NYOMD A FALHOZ";
 
-    // kalibráció 1 pillanat
+    window.addEventListener("devicemotion", szenzor);
+
     setTimeout(() => {
-        alapBeta = beta;
-        alapGamma = gamma;
+
+        rgx = gx;
+        rgy = gy;
+        rgz = gz;
 
         fut = true;
         allapotEl.textContent = "FUT";
+
     }, 1000);
 };
 
@@ -135,67 +131,58 @@ inditas.onclick = async () => {
 ========================= */
 function szenzor(e) {
 
-    if (!alapBeta || !alapGamma) {
-        beta = e.beta || 0;
-        gamma = e.gamma || 0;
-        return;
-    }
+    const a = e.accelerationIncludingGravity || {x:0,y:0,z:0};
 
-    beta = e.beta || 0;
-    gamma = e.gamma || 0;
+    gx = a.x;
+    gy = a.y;
+    gz = a.z;
+
+    if (!fut) return;
 
     feldolgoz();
 }
 
 /* =========================
-   SZÖGKÜLÖNBSÉG (KULCS!)
+   VEKTOR KÜLÖNBSÉG
 ========================= */
-function kulonbseg(aktualis, alap) {
-
-    let d = aktualis - alap;
-
-    while (d > 180) d -= 360;
-    while (d < -180) d += 360;
-
-    return d;
+function delta(a, b) {
+    return a - b;
 }
 
 /* =========================
-   ÁLLAPOT LOGIKA
-========================= */
-function allapotSzamitas(ferdeseg, kinyilas) {
-
-    // 🔴 GUGGOLÁS (nagy billenés)
-    if (Math.abs(kinyilas) > 45) {
-        return "GUGGOLÁS";
-    }
-
-    // 🟡 DÖNTÉS (kormány)
-    if (Math.abs(ferdeseg) > 15) {
-        return "DÖNTÉS";
-    }
-
-    return "ALAP";
-}
-
-/* =========================
-   FŐ LOGIKA
+   NORMALIZÁLT PROJEKCIÓK
 ========================= */
 function feldolgoz() {
 
-    const ferdeseg = kulonbseg(gamma, alapGamma);
-    const kinyilas = kulonbseg(beta, alapBeta);
+    // relatív gravitáció
+    const dx = delta(gx, rgx);
+    const dy = delta(gy, rgy);
+    const dz = delta(gz, rgz);
 
-    allapot = allapotSzamitas(ferdeseg, kinyilas);
+    // 🟡 DÖNTÉS = oldalirány (X-Y sík)
+    const dontes = Math.atan2(dx, dy) * 180 / Math.PI;
+
+    // 🔴 GUGGOLÁS = “kifelé billenés” (Z komponens)
+    const guggolas = dz;
+
+    let allapot = "ALAP";
+
+    if (Math.abs(guggolas) > 4) {
+        allapot = "GUGGOLÁS";
+    }
+    else if (Math.abs(dontes) > 12) {
+        allapot = "DÖNTÉS";
+    }
 
     allapotEl.textContent = allapot;
 
     panel.textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
-        "FERDESÉG (DÖNTÉS): " + ferdeseg.toFixed(1) + "\n" +
-        "KINYÍLÁS (GUGGOLÁS): " + kinyilas.toFixed(1) + "\n\n" +
-        "ALAP BETA: " + (alapBeta ?? 0).toFixed(1) + "\n" +
-        "ALAP GAMMA: " + (alapGamma ?? 0).toFixed(1) + "\n\n" +
+        "DÖNTÉS (fok): " + dontes.toFixed(2) + "\n" +
+        "GUGGOLÁS (Z): " + guggolas.toFixed(2) + "\n\n" +
+        "RGX: " + rgx.toFixed(2) + "\n" +
+        "RGY: " + rgy.toFixed(2) + "\n" +
+        "RGZ: " + rgz.toFixed(2) + "\n\n" +
         "ÁLLAPOT: " + allapot;
 }
 
