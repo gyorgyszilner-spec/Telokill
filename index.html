@@ -271,7 +271,7 @@
 <!-- === 4. RÉSZ VÉGE === -->
 
 
-  <!-- === 5. RÉSZ KEZDETE: FAGYÁSVÉDETT IDŐZÍTŐ ÉS ÁTMENET v2.7.5 === -->
+<!-- === 5. RÉSZ KEZDETE: BIZTOS MENTÉS ÉS PUFFERTÖRLÉS v2.7.7 === -->
     function runNextExercise() {
         if (currentExerciseIndex >= exercises.length) {
             finishCalibration();
@@ -317,9 +317,19 @@
                 clearInterval(exerciseTimer);
                 isRecording = false; 
                 
-                // 🔥 JAVÍTÁS: Nem mentünk azonnal, hanem puffereljük az adatot, 
-                // és fagyás nélkül ugrunk a következő feladat előkészítésére.
-                // A letöltés a következő kétgombos indítás pillanatában fog biztonságosan lefutni!
+                // 🔥 GARANTÁLT MENTÉS: Először kimentjük a 7 másodperces adatokat Blob-ként fagyásmentesen
+                downloadCurrentExerciseCSV(currentExerciseId, currentExerciseIndex); 
+                
+                // Utána azonnal nullázzuk a motor állapotait a fagyás ellen
+                lepesIdokozok = [];
+                lepesIntenzitások = [];
+                mozgásÁllapot = "STOP";
+                mozgásZárolva = false;
+                dontes = "SEMMI";
+                fuggoleges = "SEMMI";
+                fordulatÁllapot = "SEMMI";
+                utolsoMozgasIdo = 0;
+                
                 currentExerciseIndex++;
                 runNextExercise();
             } else {
@@ -333,6 +343,7 @@
         if (event.alpha !== null) rawAlpha = event.alpha;
     }
 <!-- === 5. RÉSZ VÉGE === -->
+
 
 
 
