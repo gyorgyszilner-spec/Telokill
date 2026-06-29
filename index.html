@@ -291,30 +291,40 @@ function feldolgoz() {
         }
     }
 
-    // 2. STATIKUS ÁLLAPOTOK ÉS FORDULÁS HIERARCHIA
+    // 2. STATIKUS ÁLLAPOTOK ÉS FORDULÁS BÁZIS HIERARCHIA
     if (!mozgásZárolva) {
         
-        // Szigorú feltétel: Csak Alaphelyzetből (STOP és semmi más mozgás) lehet elfordulni
+        // Szigorú feltétel: Csak Alaphelyzetből (STOP és csend) lehet elindulni
         let alapallapotbanVan = (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg === "STOP");
+
+        // Kiszámoljuk az elmozdulást az elmentett kalibrációs alapértéktől (ray)
+        let relativEltérésY = ay - ray;
 
         if (fordulas === "SEMMI") {
             if (alapallapotbanVan) {
-                // Szűkített, érzékenyebb beugrási küszöbök a Filter_Y (ay) elmozdulásából
-                if (ay < -0.8) fordulas = "JOBBRA";
-                else if (ay > 0.7) fordulas = "BALRA";
+                // Beugrási szűkített küszöbök a kalibrált bázistól mérve (Digitális ON)
+                if (relativEltérésY < -0.8) {
+                    fordulas = "JOBBRA";
+                } else if (relativEltérésY > 0.7) {
+                    fordulas = "BALRA";
+                }
             }
         } else {
-            // Kizárólagosság: Amíg tart a fordulat (kitekerve vagyunk), minden más mozgás le van tiltva
+            // Kizárólagosság: Amíg el vagyunk fordulva, minden más mozgás le van zárva
             dontes = "SEMMI";
             fuggoleges = "SEMMI";
             aktualisSebesseg = "STOP";
 
-            // Kikapcsolási szűkített kapuk (Csak ha a törzs teljesen visszafordul középre)
-            // Biztosítva: balból/jobból nem jöhet a túloldal, csak visszatérés ALAP állapotba!
+            // Kikapcsolási kapuk (Csak ha az érték visszatér a kalibrált zóna holtterébe)
+            // Biztosítva: balból és jobbból nem ugorhat a túloldalra, csak az alap zónán át
             if (fordulas === "JOBBRA") {
-                if (ay > -0.2) fordulas = "SEMMI";
+                if (relativEltérésY > -0.2) {
+                    fordulas = "SEMMI";
+                }
             } else if (fordulas === "BALRA") {
-                if (ay < 0.1) fordulas = "SEMMI";
+                if (relativEltérésY < 0.1) {
+                    fordulas = "SEMMI";
+                }
             }
         }
 
@@ -354,10 +364,9 @@ function feldolgoz() {
         "FORDULÁS STÁTUSZ: " + fordulas + "\n\n" +
         "BAL GOMB: " + (balGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n" +
         "JOBB GOMB: " + (jobbGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n\n" +
-        "LÉPÉSRITMUS:       " + atlagIdokoz.toFixed(0) + " ms\n" +
-        "Filter_X (ax):     " + ax.toFixed(2) + " m/s²\n" +
-        "Filter_Y (ay):     " + ay.toFixed(2) + " m/s²\n" +
-        "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
+        "KALIBRÁLT RE-Y:    " + ray.toFixed(2) + " m/s²\n" +
+        "AKTUÁLIS SZŰRT Y:  " + ay.toFixed(2) + " m/s²\n" +
+        "RELATÍV ELTÉRÉS:   " + (ay - ray).toFixed(2) + " m/s²";
 }
 
 /* =========================================================================
