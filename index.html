@@ -1,381 +1,155 @@
-<!-- === 1. RÉSZ ELEJE === -->
 <!DOCTYPE html>
-<html lang="hu">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Fal-Kép Motor v7.5.4</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motion Gamepad Prototype</title>
 <style>
-body {
-    margin: 0;
-    font-family: sans-serif;
-    background: #111;
-    color: #fff;
-    overflow: hidden;
-    user-select: none;
-    -webkit-user-select: none;
-}
-
-.keret {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    width: 100vw;
-    gap: 12px;
-    z-index: 1;
-}
-
-#allapot {
-    font-size: 34px;
-    font-weight: bold;
-    color: #00ffcc;
-    text-align: center;
-}
-
-#panel {
-    font-family: monospace;
-    white-space: pre;
-    background: #000;
-    padding: 15px;
-    border-radius: 8px;
-    width: 85%;
-    max-width: 320px;
-    font-size: 13px;
-    z-index: 5;
-}
-
-#verzio { opacity: 0.7; }
-
-#inditas {
-    padding: 12px 24px;
-    font-size: 16px;
-    font-weight: bold;
-    background: #222;
-    border: 2px solid #00ffcc;
-    color: #fff;
-    border-radius: 6px;
-    cursor: pointer;
-    z-index: 5;
-}
-
-/* KEREK HÜVELYKUIJJ GOMBOK A KÉT OLDALON */
-.oldal-gomb {
-    position: absolute;
-    bottom: 15%;
-    width: 85px;
-    height: 85px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.07);
-    border: 3px solid rgba(0, 255, 204, 0.4);
-    color: rgba(200, 255, 240, 0.7);
-    font-weight: bold;
-    font-size: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10;
-    touch-action: none;
-    transition: background 0.1s, border-color 0.1s;
-}
-
-#gomb-bal { left: 20px; }
-#gomb-jobb { right: 20px; }
-
-.oldal-gomb:active {
-    background: rgba(0, 255, 204, 0.3);
-    border-color: #00ffcc;
-    color: #fff;
-    box-shadow: 0 0 15px #00ffcc;
-}
+  body { margin:0; overflow:hidden; background:#111; }
+  #player {
+    position:absolute;
+    width:50px;
+    height:50px;
+    background:#0f0;
+    left:50vw;
+    top:50vh;
+    transform:translate(-50%, -50%);
+  }
+  #log {
+    position:fixed;
+    bottom:0;
+    left:0;
+    right:0;
+    background:#0008;
+    color:#0f0;
+    font-family:monospace;
+    padding:10px;
+    font-size:14px;
+  }
 </style>
 </head>
 <body>
 
-<!-- Érintőgombok a két szélen -->
-<div class="oldal-gomb" id="gomb-bal">BAL</div>
-<div class="oldal-gomb" id="gomb-jobb">JOBB</div>
-
-<div class="keret">
-    <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.5.4</div>
-    <div id="allapot">VÁRAKOZÁS</div>
-    <div id="panel">NYOMD A FALHOZ</div>
-</div>
+<div id="player"></div>
+<div id="log">Waiting for motion...</div>
 
 <script>
-const VERZIÓ = "v7.5.4";
-let fut = false;
+let player = document.getElementById("player");
+let log = document.getElementById("log");
 
-// Nyers és szűrt adatok
-let ax = 0, ay = 0, az = 0;
-let rax = 0, ray = 0, raz = 0;
+let posX = window.innerWidth / 2;
+let posY = window.innerHeight / 2;
 
-// Állapotok
-let dontes = "SEMMI";
-let fuggoleges = "SEMMI";
+let forwardIntensity = 0;   // 0..1
+let leanLeft = false;
+let leanRight = false;
+let jump = false;
+let crouch = false;
 
-/* =========================================================================
-   MOZGÁSI ÉS INTENZITÁS VÁLTOZÓK
-   ========================================================================= */
-let utolsoLepesIdo = 0;
-let lepesIdokozok = [];
-let lepesIntenzitások = []; 
-let utolsoGyorsulasZ = 0;
-let utolsoMozgasIdo = 0;
-let mozgásÁllapot = "STOP";
-let mozgásZárolva = false;
-let utolsoSzog = 0;
+// --- STEP DETECTION ---
+let lastAccelZ = 0;
+let stepTimer = 0;
+let stepFrequency = 0;
 
-// Gombok állapota
-let balGombLenyomva = false;
-let jobbGombLenyomva = false;
-/* === 1. RÉSZ VÉGE / 2. RÉSZ ELEJE === */
+// --- JUMP DETECTION ---
+let jumpCooldown = 0;
 
-/* === 2. RÉSZ ELEJE === */
+// --- ORIENTATION ---
+let pitch = 0;
+let roll = 0;
+let yaw = 0;
 
-/* =========================================================================
-   ENGEDÉLY ÉS KALIBRÁCIÓS INDÍTÁS
-   ========================================================================= */
-async function engedely() {
-    try {
-        if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) {
-            const r = await DeviceMotionEvent.requestPermission();
-            return r === "granted";
-        }
-        return true;
-    } catch {
-        return false;
-    }
-}
+// --- MOTION EVENTS ---
+window.addEventListener("devicemotion", (e) => {
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
 
-document.getElementById("inditas").onclick = async () => {
-    const ok = await engedely();
-    if (!ok) {
-        alert("Szenzor hozzáférés megtagadva!");
-        return;
-    }
+    // Step detection (walk/run)
+    const z = a.z;
+    const dz = Math.abs(z - lastAccelZ);
+    lastAccelZ = z;
 
-    document.getElementById("allapot").textContent = "KALIBRÁLÁS...";
-    window.addEventListener("devicemotion", szenzor);
+    if (dz > 1.2) { // peak
+        const now = performance.now();
+        const diff = now - stepTimer;
+        stepTimer = now;
+        stepFrequency = 1000 / diff; // Hz
 
-    setTimeout(() => {
-        rax = ax;
-        ray = ay;
-        raz = az;
-        fut = true;
-        document.getElementById("allapot").textContent = "ALAP";
-    }, 1500);
-};
-
-function szenzor(e) {
-    const a = e.accelerationIncludingGravity || {x:0, y:0, z:0};
-    
-    // 70/30-as gyári aluláteresztő szűrő
-    ax = ax * 0.7 + a.x * 0.3;
-    ay = ay * 0.7 + a.y * 0.3;
-    az = az * 0.7 + a.z * 0.3;
-
-    // A lépésdetektornak átadjuk a NYERS a.z értéket is az érzékenységhez!
-    if (fut) feldolgoz(a.z);
-}
-
-/* =========================================================================
-   VALÓDI HOLTTÉR ÉS HISZTERÉZIS ÁLLAPONGÉP
-   ========================================================================= */
-function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszob) {
-    if (jelenlegiState === "SEMMI") {
-        if (ertek > beKuszob) return posNev;
-        if (ertek < -beKuszob) return negNev;
-        return "SEMMI";
-    }
-    if (jelenlegiState === posNev) {
-        if (ertek < kiKuszob) return "SEMMI";
-        return posNev;
-    }
-    if (jelenlegiState === negNev) {
-        if (ertek > -kiKuszob) return "SEMMI";
-        return negNev;
-    }
-    return "SEMMI";
-}
-/* === 2. RÉSZ VÉGE / 3. RÉSZ ELEJE === */
-
-/* === 3. RÉSZ ELEJE === */
-
-/* =========================================================================
-   KETTŐS LÉPÉSDETEKTOR - DIGITÁLIS ZAJKAPU VERZIÓ (V7.5.5)
-   ========================================================================= */
-function detectLepes(jelenlegiDz, nyersDz, szogValtozas) {
-    const most = performance.now();
-    
-    // DIGITÁLIS ZAJKAPU: Emelt küszöbök a kézremegés és alapzaj kőkemény levágásához
-    // Szűrt kapu: 0.7 m/s² | Nyers kapu: 1.2 m/s²
-    const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.7 || Math.abs(nyersDz) > 1.2;
-    
-    // KERESZT-ELLENŐRZÉS: A szögugrás kapuját is megemeltük 1.2°-ra mintánként
-    const vanDőléshullámTüske = Math.abs(szogValtozas) > 1.2 && vanFüggőlegesRázkódás;
-
-    // A lépés kapu nyitása a digitális szűrés után
-    if (vanFüggőlegesRázkódás || vanDőléshullámTüske) {
-        if (most - utolsoLepesIdo > 180) {
-            const idokoz = most - utolsoLepesIdo;
-            utolsoLepesIdo = most;
-            utolsoMozgasIdo = most;
-
-            // Kombinált intenzitás kiszámítása
-            const aktualisIntenzitas = Math.abs(jelenlegiDz) + (Math.abs(szogValtozas) * 0.4);
-
-            // FUTÁS RESTART: Ha hirtelen nagy intenzitás jön, töröljük a régi séta-ritmust
-            if (aktualisIntenzitas > 2.2 && lepesIntenzitások.length > 0 && lepesIntenzitások[lepesIntenzitások.length - 1] < 1.5) {
-                lepesIdokozok = [];
-                lepesIntenzitások = [];
-            }
-
-            lepesIdokozok.push(idokoz);
-            if (lepesIdokozok.length > 3) lepesIdokozok.shift();
-
-            lepesIntenzitások.push(aktualisIntenzitas);
-            if (lepesIntenzitások.length > 3) lepesIntenzitások.shift();
+        if (stepFrequency > 1 && stepFrequency < 3.5) {
+            forwardIntensity = Math.min(stepFrequency / 3.5, 1);
         }
     }
-    utolsoGyorsulasZ = jelenlegiDz;
-}
-/* === 3. RÉSZ VÉGE / 4. RÉSZ ELEJE === */
 
+    // Jump detection
+    if (jumpCooldown <= 0 && dz > 6) {
+        jump = true;
+        jumpCooldown = 800; // ms
+    }
 
-/* === 4. RÉSZ ELEJE === */
-
-/* =========================================================================
-   FŐ FELDOLGOZÓ LOGIKA ÉS RETESZELÉS - DIGITÁLIS VERZIÓ (V7.5.5)
-   ========================================================================= */
-function feldolgoz(nyersZ) {
-    const most = performance.now();
-
-    // DŐLÉSSZÖG SZÁMÍTÁSA
-    const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
-    const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
-    
-    let dolesElteres = aktualisSzog - kalibraltSzog;
-    if (dolesElteres > 180) dolesElteres -= 360;
-    if (dolesElteres < -180) dolesElteres += 360;
-
-    let szogValtozas = aktualisSzog - utolsoSzog;
-    if (szogValtozas > 180) szogValtozas -= 360;
-    if (szogValtozas < -180) szogValtozas += 360;
-    utolsoSzog = aktualisSzog;
-
-    const dz = az - raz;
-    const nyersDz = nyersZ - raz;
-
-    // Lépések rögzítése a megemelt digitális zajkapus detektorral
-    detectLepes(dz, nyersDz, szogValtozas);
-
-    // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE
-    let aktualisSebesseg = "STOP";
-    let atlagIntenzitas = 0;
-    let atlagIdokoz = 0;
-
-    if (most - utolsoMozgasIdo < 750 && lepesIdokozok.length > 0) {
-        atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
-        
-        if (lepesIntenzitások.length > 0) {
-            atlagIntenzitas = lepesIntenzitások.reduce((a, b) => a + b, 0) / lepesIntenzitások.length;
-        }
-
-        if (lepesIdokozok.length >= 2) {
-            const isFutam = atlagIdokoz < 310;
-            const isMagasTerd = atlagIntenzitas > 2.10; 
-
-            if (isFutam) {
-                aktualisSebesseg = isMagasTerd ? "MAGAS TÉRD FUTÁS" : "FUTÁS";
-            } else {
-                aktualisSebesseg = isMagasTerd ? "MAGAS TÉRD JÁRÁS" : "JÁRÁS";
-            }
-        }
+    // Crouch detection (pitch forward + low Z)
+    if (pitch > 30 && z < -2) {
+        crouch = true;
     } else {
-        lepesIdokozok = [];
-        lepesIntenzitások = [];
+        crouch = false;
+    }
+});
+
+window.addEventListener("deviceorientation", (e) => {
+    pitch = e.beta;   // up/down
+    roll = e.gamma;   // left/right tilt
+    yaw = e.alpha;    // turn
+
+    leanLeft = roll < -15;
+    leanRight = roll > 15;
+});
+
+// --- GAME LOOP ---
+function loop(dt) {
+    // Move forward
+    posY -= forwardIntensity * 4;
+
+    // Lean left/right
+    if (leanLeft) posX -= 3;
+    if (leanRight) posX += 3;
+
+    // Jump impulse
+    if (jump) {
+        posY -= 40;
+        jump = false;
     }
 
-    // 2. STATIKUS ÁLLAPOTOK FOLYAMATOS FRISSÍTÉSE
-    dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
-    fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
-
-    /* =========================================================================
-       ZÁROLÁSI ÉS RETESZELÉSI LOGIKA (TISZTA DIGITÁLIS KONTROLLER ELV)
-       ========================================================================= */
-    if (mozgásZárolva) {
-        if (aktualisSebesseg === "STOP") {
-            mozgásZárolva = false;
-            mozgásÁllapot = "STOP";
-        } else {
-            mozgásÁllapot = aktualisSebesseg;
-        }
+    // Crouch
+    if (crouch) {
+        player.style.height = "25px";
     } else {
-        // DIGITÁLIS RETESZ: Csak akkor engedjük rá a mozgásreteszt, ha a dőléskapu szerint EGYENESEN (SEMMI) állunk!
-        if (dontes === "SEMMI" && aktualisSebesseg !== "STOP") {
-            mozgásZárolva = true;
-            mozgásÁllapot = aktualisSebesseg;
-        }
-    }
-/* === 4. RÉSZ VÉGE / 5. RÉSZ ELEJE === */
-
-
-/* === 5. RÉSZ ELEJE === */
-
-    // 3. MEGJELENÍTÉS ÉS HIERARCHIA
-    let kijelzendoAllapot = "ALAP";
-    
-    if (mozgásZárolva) {
-        kijelzendoAllapot = mozgásÁllapot;
-    } else if (fuggoleges !== "SEMMI") {
-        kijelzendoAllapot = fuggoleges;
-    } else if (dontes !== "SEMMI") {
-        kijelzendoAllapot = "DÖNTÉS " + dontes;
+        player.style.height = "50px";
     }
 
-    document.getElementById("allapot").textContent = kijelzendoAllapot;
+    // Clamp
+    posX = Math.max(0, Math.min(window.innerWidth - 50, posX));
+    posY = Math.max(0, Math.min(window.innerHeight - 50, posY));
 
-    // Telemetria kiírása
-    document.getElementById("panel").textContent =
-        "VERZIÓ: " + VERZIÓ + "\n\n" +
-        "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
-        "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n" +
-        "MOZGÁS STÁTUSZ: " + mozgásÁllapot + "\n\n" +
-        "BAL GOMB: " + (balGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n" +
-        "JOBB GOMB: " + (jobbGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n\n" +
-        "LÉPÉSRITMUS:       " + atlagIdokoz.toFixed(0) + " ms\n" +
-        " -> SKÁLA: FUTÁS < 310 ms | JÁRÁS > 310 ms\n\n" +
-        "KOMBI INTENZITÁS:  " + atlagIntenzitas.toFixed(2) + "\n" +
-        "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
-        "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
+    // Render
+    player.style.left = posX + "px";
+    player.style.top = posY + "px";
+
+    // Log
+    log.innerText =
+        "forwardIntensity: " + forwardIntensity.toFixed(2) + "\n" +
+        "leanLeft: " + leanLeft + "\n" +
+        "leanRight: " + leanRight + "\n" +
+        "pitch: " + pitch.toFixed(1) + "\n" +
+        "roll: " + roll.toFixed(1) + "\n" +
+        "yaw: " + yaw.toFixed(1) + "\n" +
+        "stepFrequency: " + stepFrequency.toFixed(2) + " Hz\n";
+
+    // Cooldowns
+    if (jumpCooldown > 0) jumpCooldown -= dt;
+
+    requestAnimationFrame(() => loop(16));
 }
 
-/* =========================================================================
-   HÜVELYKUIJJ GOMBOK ÉRINTÉS-KEZELÉSE (ZÁRÓ BLOKK)
-   ========================================================================= */
-const bGomb = document.getElementById("gomb-bal");
-const jGomb = document.getElementById("gomb-jobb");
-
-// Mobil érintés kezelése
-bGomb.addEventListener("touchstart", (e) => { e.preventDefault(); balGombLenyomva = true; });
-bGomb.addEventListener("touchend", (e) => { e.preventDefault(); balGombLenyomva = false; });
-
-jGomb.addEventListener("touchstart", (e) => { e.preventDefault(); jobbGombLenyomva = true; });
-jGomb.addEventListener("touchend", (e) => { e.preventDefault(); jobbGombLenyomva = false; });
-
-// Asztali PC egér támogatás (Teszteléshez)
-bGomb.addEventListener("mousedown", () => { balGombLenyomva = true; });
-bGomb.addEventListener("mouseup", () => { balGombLenyomva = false; });
-jGomb.addEventListener("mousedown", () => { jobbGombLenyomva = true; });
-jGomb.addEventListener("mouseup", () => { jobbGombLenyomva = false; });
+loop(16);
 </script>
 
 </body>
 </html>
-<!-- === 5. RÉSZ VÉGE === -->
-
