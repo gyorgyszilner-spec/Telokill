@@ -1,0 +1,509 @@
+<!-- === 1. RÉSZ: CONTROLLER INTERFACE ÉS CSS v2.5.0 === -->
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Heatwave Okos Kalibráció v2.5.0</title>
+    <style>
+        body { 
+            font-family: sans-serif; 
+            background: #111; 
+            color: #fff; 
+            padding: 0; 
+            margin: 0; 
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .container { 
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            box-sizing: border-box;
+            padding: 20px;
+        }
+        .version-tag { 
+            color: #ff9800; 
+            font-weight: bold; 
+            font-size: 14px; 
+            position: absolute;
+            top: 15px;
+            letter-spacing: 1px; 
+        }
+        #startBtn { 
+            background: #ff5722; 
+            color: white; 
+            border: none; 
+            padding: 20px 40px; 
+            font-size: 24px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            z-index: 10;
+        }
+        #instruction { 
+            font-size: 26px; 
+            font-weight: bold; 
+            margin: 15px 0; 
+            color: #ffeb3b; 
+            max-width: 60%;
+            text-align: center;
+        }
+        .alert-mode {
+            color: #ff3333 !important;
+            animation: villog 0.5s infinite alternate;
+        }
+        @keyframes villog {
+            from { opacity: 1; }
+            to { opacity: 0.5; }
+        }
+        #timer { 
+            font-size: 72px; 
+            font-weight: bold; 
+            color: #e91e63; 
+            margin: 10px 0; 
+        }
+        #status { 
+            font-size: 13px; 
+            color: #aaa; 
+            position: absolute;
+            bottom: 15px;
+            font-family: monospace;
+            white-space: pre;
+            text-align: center;
+            max-width: 90%;
+            line-height: 1.4;
+        }
+        .progress-bar { 
+            background: #333; 
+            height: 8px; 
+            border-radius: 4px; 
+            width: 40%; 
+            margin-top: 10px; 
+            overflow: hidden; 
+        }
+        #progress { 
+            background: #4caf50; 
+            height: 100%; 
+            width: 0%; 
+            transition: width 0.3s; 
+        }
+        .ctrl-btn {
+            position: absolute;
+            width: 90px;
+            height: 90px;
+            border: 4px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            font-size: 16px;
+            color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.05);
+            transition: all 0.1s ease;
+            z-index: 10;
+            touch-action: none;
+        }
+
+        #leftBtn { left: 40px; }
+        #rightBtn { right: 40px; }
+        .ctrl-btn.active {
+            border-color: #00ffcc;
+            color: #00ffcc;
+            background: rgba(0, 255, 204, 0.2);
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="version-tag">VERZIÓ: v2.5.0 - SMART LOG ENGINE</div>
+        <button id="startBtn">▶ TESZT INDÍTÁSA</button>
+        <div id="instruction">Tartsd a telefont két kézzel magad előtt!</div>
+        <div id="timer">--</div>
+        <div class="progress-bar">
+            <div id="progress"></div>
+        </div>
+        <div id="status">Állapot: Várakozás</div>
+        <div id="leftBtn" class="ctrl-btn">BAL</div>
+        <div id="rightBtn" class="ctrl-btn">JOBB</div>
+    </div>
+
+<script>
+    const exercises = [
+        { id: "Seta_helyben", name: "Séta helyben (Kényelmesen)", checkAlap: true },
+        { id: "Futas_helyben", name: "Futás helyben (Tempósan)", checkAlap: true },
+        { id: "Kilepes_oldalra", name: "Kilépés jobbra-balra", checkAlap: true },
+        { id: "KONTROLL_1", name: "KONTROLL MÉRÉS: Állj mozdulatlanul alapállapotba!", isControl: true },
+        { id: "Seta_magas_terd", name: "Séta helyben, magas térdemeléssel", checkAlap: true },
+        { id: "Futas_magas_terd", name: "Futás helyben, magas térdemeléssel", checkAlap: true },
+        { id: "Futas_kitereessel", name: "Futás kitéréssel jobbra-balra", checkAlap: true },
+        { id: "Guggolas", name: "Leguggolás és felállás", checkAlap: true },
+        { id: "KONTROLL_2", name: "KONTROLL MÉRÉS: Állj mozdulatlanul alapállapotba!", isControl: true },
+        { id: "Ugras_guggolasbol", name: "Ugrás leguggolásból", checkAlap: true },
+        { id: "Ugras_futasbol", name: "Ugrás futásból vagy sétából", checkAlap: false },
+        { id: "Terpeszbe_allis", name: "Terpeszbe állás és visszaállás", checkAlap: true },
+        { id: "Vadliemeles", name: "Lábujjhegyre állás és vissza", checkAlap: true },
+        { id: "Kez_felemelese", name: "Kéz felemelése maga elé", checkAlap: true },
+        { id: "Kez_leengedese", name: "Kéz leengedése", checkAlap: false },
+        { id: "Fordulas_jobbra", name: "Fordulás törzsből jobbra", checkAlap: true },
+        { id: "Fordulas_balra", name: "Fordulás törzsből balra", checkAlap: true },
+        { id: "Guggolas_ugras_kez", name: "Guggolásból felugrás kéz felemelésével", checkAlap: true },
+        { id: "KONTROLL_3", name: "VÉGSŐ MÉRÉS: Állj mozdulatlanul alapállapotba!", isControl: true }
+    ];
+
+    let currentExerciseIndex = 0;
+    let sensorLogs = [];
+    let isRecording = false;
+    let startTimestamp = 0;
+    let exerciseTimer = null;
+    let currentExerciseId = "Felkeszules";
+
+    let rawX = 0, rawY = 0, rawZ = 0;
+    let ax = 0, ay = 0, az = 0;
+    let rax = 0, ray = 0, raz = 0;
+    let utolsoSzog = 0;
+
+    let rawAlpha = 0;
+    let kalibráltAlpha = 0;
+    let balGombLenyomva = false;
+    let jobbGombLenyomva = false;
+
+    let utolsoLepesIdo = 0;
+    let lepesIdokozok = [];
+    let lepesIntenzitások = []; 
+    let utolsoGyorsulasZ = 0;
+    let utolsoMozgasIdo = 0;
+    let mozgásÁllapot = "STOP";
+    let mozgásZárolva = false;
+
+    let dontes = "SEMMI";
+    let fuggoleges = "SEMMI";
+    let fordulatÁllapot = "SEMMI";
+
+    const startBtn = document.getElementById('startBtn');
+    const instructionDiv = document.getElementById('instruction');
+    const timerDiv = document.getElementById('timer');
+    const statusDiv = document.getElementById('status');
+    const progressDiv = document.getElementById('progress');
+    const leftBtn = document.getElementById('leftBtn');
+    const rightBtn = document.getElementById('rightBtn');
+
+    leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); balGombLenyomva = true; leftBtn.classList.add('active'); });
+    leftBtn.addEventListener('touchend', () => { balGombLenyomva = false; leftBtn.classList.remove('active'); });
+    rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); jobbGombLenyomva = true; rightBtn.classList.add('active'); });
+    rightBtn.addEventListener('touchend', () => { jobbGombLenyomva = false; rightBtn.classList.remove('active'); });
+
+    function speak(text) {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); 
+            setTimeout(() => {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'hu-HU';
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
+                window.speechSynthesis.speak(utterance);
+            }, 50);
+        }
+    }
+
+    async function requestPermission() {
+        try {
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                const motionRes = await DeviceMotionEvent.requestPermission();
+                if (motionRes !== 'granted') return false;
+            }
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                const orientRes = await DeviceOrientationEvent.requestPermission();
+                if (orientRes !== 'granted') return false;
+            }
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    startBtn.addEventListener('click', async () => {
+        const hasPermission = await requestPermission();
+        if (!hasPermission) {
+            alert("Szenzor hozzáférés megtagadva!");
+            return;
+        }
+
+        try {
+            if (document.documentElement.requestFullscreen) {
+                await document.documentElement.requestFullscreen();
+            }
+            if (screen.orientation && screen.orientation.lock) {
+                await screen.orientation.lock('landscape');
+            }
+        } catch(e) { 
+            console.log("Képernyőzár / tájolás lock nem támogatott."); 
+        }
+
+        startBtn.style.display = 'none';
+        sensorLogs = [];
+        currentExerciseIndex = 0;
+        startTimestamp = performance.now();
+        
+        window.addEventListener('devicemotion', handleMotion);
+        window.addEventListener('deviceorientation', handleOrientation);
+        
+        startCountdown(5, "Nyomd a telefont a falhoz a kalibráláshoz!", () => {
+            rax = ax; ray = ay; raz = az;
+            kalibráltAlpha = rawAlpha;
+            isRecording = true;
+            runNextExercise();
+        });
+    });
+
+    function startCountdown(seconds, message, onComplete) {
+        currentExerciseId = "Felkeszules";
+        instructionDiv.textContent = message;
+        instructionDiv.classList.remove("alert-mode");
+        speak(message);
+        
+        let timeLeft = seconds;
+        timerDiv.textContent = timeLeft;
+
+        const interval = setInterval(() => {
+            timeLeft--;
+            if (timeLeft <= 0) {
+                clearInterval(interval);
+                onComplete();
+            } else {
+                timerDiv.textContent = timeLeft;
+            }
+        }, 1000);
+    }
+
+    function runNextExercise() {
+        if (currentExerciseIndex >= exercises.length) {
+            finishCalibration();
+            return;
+        }
+
+        const currentEx = exercises[currentExerciseIndex];
+        
+        if (currentEx.checkAlap && (dontes !== "SEMMI" || fuggoleges !== "SEMMI" || mozgásÁllapot !== "STOP")) {
+            instructionDiv.textContent = "ÁLLJ VISSZA ALAPÁLLAPOTBA!";
+            instructionDiv.classList.add("alert-mode");
+            timerDiv.textContent = "⚠";
+            speak("Kérlek, állj vissza alapállapotba a következő gyakorlathoz!");
+            
+            setTimeout(runNextExercise, 500);
+            return;
+        }
+
+        instructionDiv.classList.remove("alert-mode");
+        currentExerciseId = currentEx.id;
+        instructionDiv.textContent = currentEx.name;
+        statusDiv.textContent = `Gyakorlat: ${currentExerciseIndex + 1} / ${exercises.length}`;
+        progressDiv.style.width = `${((currentExerciseIndex + 1) / exercises.length) * 100}%`;
+        
+        speak(currentEx.name);
+
+        let timeLeft = 10;
+        timerDiv.textContent = timeLeft;
+
+        exerciseTimer = setInterval(() => {
+            timeLeft--;
+            if (timeLeft <= 0) {
+                clearInterval(exerciseTimer);
+                currentExerciseIndex++;
+                runNextExercise();
+            } else {
+                timerDiv.textContent = timeLeft;
+                if (timeLeft <= 3) speak(timeLeft.toString());
+            }
+        }, 1000);
+    }
+
+    function handleOrientation(event) {
+        if (event.alpha !== null) rawAlpha = event.alpha;
+    }
+
+    function handleMotion(event) {
+        const accGravity = event.accelerationIncludingGravity || {x:0, y:0, z:0};
+        const accNoGravity = event.acceleration || {x:0, y:0, z:0};
+        if (accGravity.x === null) return;
+
+        rawX = accGravity.x;
+        rawY = accGravity.y;
+        rawZ = accGravity.z;
+
+        ax = ax * 0.7 + rawX * 0.3;
+        ay = ay * 0.7 + rawY * 0.3;
+        az = az * 0.7 + rawZ * 0.3;
+
+        if (isRecording) {
+            feldolgozMotorLogika();
+            
+            const relTime = (performance.now() - startTimestamp).toFixed(0);
+            const magnitude = Math.sqrt(accNoGravity.x*accNoGravity.x + accNoGravity.y*accNoGravity.y + accNoGravity.z*accNoGravity.z);
+
+            sensorLogs.push({
+                time: relTime,
+                exercise: currentExerciseId,
+                rx: rawX.toFixed(4), ry: rawY.toFixed(4), rz: rawZ.toFixed(4),
+                rAlpha: rawAlpha.toFixed(2),
+                magnitude: magnitude.toFixed(4),
+                ax: ax.toFixed(4), ay: ay.toFixed(4), az: az.toFixed(4),
+                dolesZ: (Math.atan2(az, ay) * 180 / Math.PI - Math.atan2(raz, ray) * 180 / Math.PI).toFixed(2),
+                dolesX: (Math.atan2(ax, ay) * 180 / Math.PI - Math.atan2(rax, ray) * 180 / Math.PI).toFixed(2),
+                yawDelta: (rawAlpha - kalibráltAlpha).toFixed(2),
+                intenzitas: (lepesIntenzitások.length > 0 ? (lepesIntenzitások.reduce((a,b)=>a+b,0)/lepesIntenzitások.length) : 0).toFixed(2),
+                ritmus: (lepesIdokozok.length > 0 ? (lepesIdokozok.reduce((a,b)=>a+b,0)/lepesIdokozok.length) : 0).toFixed(0),
+                retesz: mozgásZárolva ? 1 : 0,
+                motorState: mozgásZárolva ? mozgásÁllapot : (fuggoleges !== "SEMMI" ? fuggoleges : (dontes !== "SEMMI" ? "DÖNTÉS_" + dontes : "ALAP")),
+                turnState: fordulatÁllapot,
+                btnB: balGombLenyomva ? 1 : 0,
+                btnJ: jobbGombLenyomva ? 1 : 0
+            });
+        }
+    }
+
+    function detectLepes(jelenlegiDz, szogValtozas) {
+        const most = performance.now();
+        const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.9 && Math.abs(utolsoGyorsulasZ) <= 0.9;
+        const vanDőléshullámTüske = Math.abs(szogValtozas) > 2.8;
+
+        if (vanFüggőlegesRázkódás || vanDőléshullámTüske) {
+            if (most - utolsoLepesIdo > 180) {
+                const idokoz = most - utolsoLepesIdo;
+                utolsoLepesIdo = most;
+                utolsoMozgasIdo = most;
+
+                lepesIdokozok.push(idokoz);
+                if (lepesIdokozok.length > 3) lepesIdokozok.shift();
+
+                const aktualisIntenzitas = Math.abs(jelenlegiDz) + (Math.abs(szogValtozas) * 0.4);
+                lepesIntenzitások.push(aktualisIntenzitas);
+                if (lepesIntenzitások.length > 3) lepesIntenzitások.shift();
+            }
+        }
+        utolsoGyorsulasZ = jelenlegiDz;
+    }
+
+    function feldolgozMotorLogika() {
+        const most = performance.now();
+
+        const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
+        const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
+        
+        let dolesElteres = aktualisSzog - kalibraltSzog;
+        if (dolesElteres > 180) dolesElteres -= 360;
+        if (dolesElteres < -180) dolesElteres += 360;
+
+        let szogValtozas = aktualisSzog - utolsoSzog;
+        if (szogValtozas > 180) szogValtozas -= 360;
+        if (szogValtozas < -180) szogValtozas += 360;
+        utolsoSzog = aktualisSzog;
+
+        const dz = az - raz;
+
+        detectLepes(dz, szogValtozas);
+
+        let aktualisSebesseg = "STOP";
+        let atlagIntenzitas = 0;
+
+        if (most - utolsoMozgasIdo < 750 && lepesIdokozok.length > 0) {
+            const atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
+            if (lepesIntenzitások.length > 0) {
+                atlagIntenzitas = lepesIntenzitások.reduce((a, b) => a + b, 0) / lepesIntenzitások.length;
+            }
+            if (lepesIdokozok.length >= 2) {
+                const isFutam = atlagIdokoz < 310;
+                const isMagasTerd = atlagIntenzitas > 2.10; 
+
+                if (isFutam) {
+                    aktualisSebesseg = isMagasTerd ? "MAGAS_TÉRD_FUTÁS" : "FUTÁS";
+                } else {
+                    aktualisSebesseg = isMagasTerd ? "MAGAS_TÉRD_JÁRÁS" : "JÁRÁS";
+                }
+            }
+        } else {
+            lepesIdokozok = [];
+            lepesIntenzitások = [];
+        }
+
+        if (mozgásZárolva) {
+            if (aktualisSebesseg === "STOP") {
+                mozgásZárolva = false;
+                mozgásÁllapot = "STOP";
+            } else {
+                mozgásÁllapot = aktualisSebesseg;
+            }
+        }
+
+        let dolesYaw = rawAlpha - kalibráltAlpha;
+        if (dolesYaw > 180) dolesYaw -= 360;
+        if (dolesYaw < -180) dolesYaw += 360;
+        fordulatÁllapot = vizsgalAllapot(dolesYaw, fordulatÁllapot, "BALRA", "JOBBRA", 20, 10);
+
+        if (!mozgásZárolva) {
+            dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
+            fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
+
+            if (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg !== "STOP") {
+                mozgásZárolva = true;
+                mozgásÁllapot = aktualisSebesseg;
+            }
+        }
+
+        statusDiv.textContent = `Gyakorlat: ${currentExerciseId}\n` +
+            `DŐLÉS: ${dolesElteres.toFixed(1)}° | DZ: ${dz.toFixed(2)} | YAW DELTA: ${dolesYaw.toFixed(1)}°\n` +
+            `BELSŐ MOTOR STATE: ${mozgásZárolva ? mozgásÁllapot : (fuggoleges !== "SEMMI" ? fuggoleges : (dontes !== "SEMMI" ? dontes : "ALAP"))}\n` +
+            `FORDULÁS: ${fordulatÁllapot} | BAL: ${balGombLenyomva ? 1 : 0} | JOBB: ${jobbGombLenyomva ? 1 : 0}`;
+    }
+
+    function finishCalibration() {
+        isRecording = false;
+        window.removeEventListener('devicemotion', handleMotion);
+        window.removeEventListener('deviceorientation', handleOrientation);
+        
+        instructionDiv.textContent = "Mérések Kész!";
+        timerDiv.textContent = "✔";
+        speak("Gratulálok, a mérések befejeződtek. Mentsd el a szoftvernek megfelelő okos fájlt!");
+
+        startBtn.style.display = 'block';
+        startBtn.style.background = '#4caf50';
+        startBtn.textContent = "⬇ OKOS CSV LETÖLTÉSE";
+        
+        startBtn.onclick = function() {
+            downloadCSV();
+        };
+    }
+
+    function downloadCSV() {
+        if (sensorLogs.length === 0) return;
+
+        let csvContent = "data:text/csv;charset=utf-8,Time_ms,Exercise_ID,Raw_X,Raw_Y,Raw_Z,Raw_Alpha,Nyers_Magnitude,Filter_X,Filter_Y,Filter_Z,Calc_DolesZ,Calc_DolesX,Calc_YawDelta,Calc_Intenzitas,Calc_Ritmus_ms,Motor_Retesz,OUTPUT_MotorState,OUTPUT_TurnState,OUTPUT_Btn_Bal,OUTPUT_Btn_Jobb\n";
+
+        sensorLogs.forEach(log => {
+            csvContent += `${log.time},${log.exercise},${log.rx},${log.ry},${log.rz},${log.rAlpha},${log.magnitude},${log.ax},${log.ay},${log.az},${log.dolesZ},${log.dolesX},${log.yawDelta},${log.intenzitas},${log.ritmus},${log.retesz},${log.motorState},${log.turnState},${log.btnB},${log.btnJ}\n`;
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        
+        const mostIdo = new Date().toISOString().slice(0,19).replace('T', '_').replace(/:/g, '-');
+        link.setAttribute("download", `Heatwave_Smart_Motor_Log_${mostIdo}.csv`);
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+</body>
+</html>
