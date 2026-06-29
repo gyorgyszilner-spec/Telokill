@@ -113,12 +113,15 @@
             touch-action: none;
         }
 <!-- === 1. RÉSZ VÉGE === -->
-
-
-
-      <!-- === 2. RÉSZ KEZDETE: VIRTUÁLIS GOMB POZÍCIÓK ÉS GYAKORLATOK LISTÁJA v2.7.1 === -->
-        #leftBtn { left: 40px; }
-        #rightBtn { right: 40px; }
+<!-- === 2. RÉSZ KEZDETE: FIX VIRTUÁLIS GOMB POZÍCIÓK ÉS GYAKORLATOK LISTÁJA v2.7.2 === -->
+        #leftBtn { 
+            left: 40px; 
+            top: 45%; 
+        }
+        #rightBtn { 
+            right: 40px; 
+            top: 45%; 
+        }
         .ctrl-btn.active {
             border-color: #00ffcc;
             color: #00ffcc;
@@ -130,7 +133,7 @@
 <body>
 
     <div class="container">
-        <div class="version-tag">VERZIÓ: v2.7.1 - FIXED TRIGGERED SMART ENGINE</div>
+        <div class="version-tag">VERZIÓ: v2.7.2 - FIXED DUAL BUTTONS</div>
         <button id="startBtn">▶ TESZT INDÍTÁSA</button>
         <div id="instruction">Tartsd a telefont két kézzel magad előtt!</div>
         <div id="timer">--</div>
@@ -172,6 +175,8 @@
     let exerciseTimer = null;
     let currentExerciseId = "Felkeszules";
     let isWaitingForTrigger = false;
+<!-- === 2. RÉSZ VÉGE === -->
+
 <!-- === 2. RÉSZ VÉGE === -->
 
 
