@@ -2,9 +2,20 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Motion Gamepad Prototype</title>
+<title>Motion Gamepad Prototype v2</title>
 <style>
-  body { margin:0; overflow:hidden; background:#111; }
+  body { margin:0; overflow:hidden; background:#222; }
+
+  /* JÁTÉKTÉR */
+  #ground {
+    position:absolute;
+    bottom:0;
+    left:0;
+    width:100vw;
+    height:40vh;
+    background:#444;
+  }
+
   #player {
     position:absolute;
     width:50px;
@@ -14,30 +25,34 @@
     top:50vh;
     transform:translate(-50%, -50%);
   }
-  #log {
+
+  /* HUD OVERLAY */
+  #hud {
     position:fixed;
-    bottom:0;
+    top:0;
     left:0;
-    right:0;
-    background:#0008;
+    width:100%;
+    background:#0007;
     color:#0f0;
     font-family:monospace;
-    padding:10px;
-    font-size:14px;
+    padding:5px 10px;
+    font-size:12px;
+    pointer-events:none;
   }
 </style>
 </head>
 <body>
 
+<div id="ground"></div>
 <div id="player"></div>
-<div id="log">Waiting for motion...</div>
+<div id="hud">Initializing sensors…</div>
 
 <script>
 let player = document.getElementById("player");
-let log = document.getElementById("log");
+let hud = document.getElementById("hud");
 
 let posX = window.innerWidth / 2;
-let posY = window.innerHeight / 2;
+let posY = window.innerHeight * 0.6;
 
 let forwardIntensity = 0;   // 0..1
 let leanLeft = false;
@@ -63,16 +78,16 @@ window.addEventListener("devicemotion", (e) => {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
 
-    // Step detection (walk/run)
     const z = a.z;
     const dz = Math.abs(z - lastAccelZ);
     lastAccelZ = z;
 
-    if (dz > 1.2) { // peak
+    // Step detection
+    if (dz > 1.2) {
         const now = performance.now();
         const diff = now - stepTimer;
         stepTimer = now;
-        stepFrequency = 1000 / diff; // Hz
+        stepFrequency = 1000 / diff;
 
         if (stepFrequency > 1 && stepFrequency < 3.5) {
             forwardIntensity = Math.min(stepFrequency / 3.5, 1);
@@ -82,21 +97,17 @@ window.addEventListener("devicemotion", (e) => {
     // Jump detection
     if (jumpCooldown <= 0 && dz > 6) {
         jump = true;
-        jumpCooldown = 800; // ms
+        jumpCooldown = 800;
     }
 
-    // Crouch detection (pitch forward + low Z)
-    if (pitch > 30 && z < -2) {
-        crouch = true;
-    } else {
-        crouch = false;
-    }
+    // Crouch detection
+    crouch = (pitch > 30 && z < -2);
 });
 
 window.addEventListener("deviceorientation", (e) => {
-    pitch = e.beta;   // up/down
-    roll = e.gamma;   // left/right tilt
-    yaw = e.alpha;    // turn
+    pitch = e.beta;
+    roll = e.gamma;
+    yaw = e.alpha;
 
     leanLeft = roll < -15;
     leanRight = roll > 15;
@@ -104,43 +115,44 @@ window.addEventListener("deviceorientation", (e) => {
 
 // --- GAME LOOP ---
 function loop(dt) {
-    // Move forward
+    // Forward movement
     posY -= forwardIntensity * 4;
 
     // Lean left/right
     if (leanLeft) posX -= 3;
     if (leanRight) posX += 3;
 
-    // Jump impulse
+    // Jump
     if (jump) {
         posY -= 40;
         jump = false;
     }
 
+    // Gravity
+    posY += 2;
+
+    // Ground collision
+    const groundLevel = window.innerHeight * 0.6;
+    if (posY > groundLevel) posY = groundLevel;
+
     // Crouch
-    if (crouch) {
-        player.style.height = "25px";
-    } else {
-        player.style.height = "50px";
-    }
+    player.style.height = crouch ? "25px" : "50px";
 
     // Clamp
     posX = Math.max(0, Math.min(window.innerWidth - 50, posX));
-    posY = Math.max(0, Math.min(window.innerHeight - 50, posY));
 
     // Render
     player.style.left = posX + "px";
     player.style.top = posY + "px";
 
-    // Log
-    log.innerText =
-        "forwardIntensity: " + forwardIntensity.toFixed(2) + "\n" +
-        "leanLeft: " + leanLeft + "\n" +
-        "leanRight: " + leanRight + "\n" +
-        "pitch: " + pitch.toFixed(1) + "\n" +
-        "roll: " + roll.toFixed(1) + "\n" +
-        "yaw: " + yaw.toFixed(1) + "\n" +
-        "stepFrequency: " + stepFrequency.toFixed(2) + " Hz\n";
+    // HUD
+    hud.innerText =
+        "forwardIntensity: " + forwardIntensity.toFixed(2) + " | " +
+        "leanLeft: " + leanLeft + " | " +
+        "leanRight: " + leanRight + " | " +
+        "pitch: " + pitch.toFixed(1) + " | " +
+        "roll: " + roll.toFixed(1) + " | " +
+        "stepFreq: " + stepFrequency.toFixed(2) + " Hz";
 
     // Cooldowns
     if (jumpCooldown > 0) jumpCooldown -= dt;
