@@ -484,26 +484,45 @@
         };
     }
 
-    function downloadCSV() {
-        if (sensorLogs.length === 0) return;
+       function downloadCSV() {
+        if (sensorLogs.length === 0) {
+            alert("Nincs menthető adat!");
+            return;
+        }
 
-        let csvContent = "data:text/csv;charset=utf-8,Time_ms,Exercise_ID,Raw_X,Raw_Y,Raw_Z,Raw_Alpha,Nyers_Magnitude,Filter_X,Filter_Y,Filter_Z,Calc_DolesZ,Calc_DolesX,Calc_YawDelta,Calc_Intenzitas,Calc_Ritmus_ms,Motor_Retesz,OUTPUT_MotorState,OUTPUT_TurnState,OUTPUT_Btn_Bal,OUTPUT_Btn_Jobb\n";
+        // UTF-8 BOM hozzáadása az elejére, hogy az Excel és más programok helyesen jelenítsék meg a magyar karaktereket
+        let csvContent = "\uFEFFTime_ms,Exercise_ID,Raw_X,Raw_Y,Raw_Z,Raw_Alpha,Nyers_Magnitude,Filter_X,Filter_Y,Filter_Z,Calc_DolesZ,Calc_DolesX,Calc_YawDelta,Calc_Intenzitas,Calc_Ritmus_ms,Motor_Retesz,OUTPUT_MotorState,OUTPUT_TurnState,OUTPUT_Btn_Bal,OUTPUT_Btn_Jobb\n";
 
         sensorLogs.forEach(log => {
             csvContent += `${log.time},${log.exercise},${log.rx},${log.ry},${log.rz},${log.rAlpha},${log.magnitude},${log.ax},${log.ay},${log.az},${log.dolesZ},${log.dolesX},${log.yawDelta},${log.intenzitas},${log.ritmus},${log.retesz},${log.motorState},${log.turnState},${log.btnB},${log.btnJ}\n`;
         });
 
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
+        // Blob létrehozása text/csv típussal
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
         
-        const mostIdo = new Date().toISOString().slice(0,19).replace('T', '_').replace(/:/g, '-');
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        
+        // Helyi időzóna szerinti pontos fájlnév generálás (biztonságos karakterekkel)
+        const most = new Date();
+        const mostIdo = most.getFullYear() + "-" + 
+                        String(most.getMonth() + 1).padStart(2, '0') + "-" + 
+                        String(most.getDate()).padStart(2, '0') + "_" + 
+                        String(most.getHours()).padStart(2, '0') + "-" + 
+                        String(most.getMinutes()).padStart(2, '0') + "-" + 
+                        String(most.getSeconds()).padStart(2, '0');
+                        
         link.setAttribute("download", `Heatwave_Smart_Motor_Log_${mostIdo}.csv`);
         
         document.body.appendChild(link);
         link.click();
+        
+        // Memória felszabadítása a letöltés után
         document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     }
+
 </script>
 </body>
 </html>
