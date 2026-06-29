@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Fal-Kép Motor v7.8.0</title>
+<title>Fal-Kép Motor v7.9.0</title>
 
 <style>
 body {
@@ -101,13 +101,13 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.8.0</div>
+    <div id="verzio">v7.9.0</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.8.0";
+const VERZIÓ = "v7.9.0";
 let fut = false;
 
 // Nyers és szűrt adatok (V7.2.3)
@@ -130,10 +130,6 @@ let utolsoMozgasIdo = 0;
 let mozgásÁllapot = "STOP";
 let mozgásZárolva = false;
 let utolsoSzog = 0;
-
-// Fordulás fix kiindulópont bázisa
-let fordulasBazisSzog = 0;
-let aktualisRelativSzog = 0;
 
 // Gombok állapota
 let balGombLenyomva = false;
@@ -295,7 +291,7 @@ function feldolgoz() {
         }
     }
 
-    // 2. STATIKUS ÁLLAPOTOK ÉS FORDULÁS HIERARCHIA (A megadott logfájlok alapján)
+    // 2. STATIKUS ÁLLAPOTOK ÉS FORDULÁS HIERARCHIA
     if (!mozgásZárolva) {
         
         // Szigorú feltétel: Csak Alaphelyzetből (STOP és semmi más mozgás) lehet elfordulni
@@ -303,21 +299,22 @@ function feldolgoz() {
 
         if (fordulas === "SEMMI") {
             if (alapallapotbanVan) {
-                // Beugrási küszöbök a Filter_Y (ay) elmozdulásából
-                if (ay < -1.2) fordulas = "JOBBRA";
-                else if (ay > 1.0) fordulas = "BALRA";
+                // Szűkített, érzékenyebb beugrási küszöbök a Filter_Y (ay) elmozdulásából
+                if (ay < -0.8) fordulas = "JOBBRA";
+                else if (ay > 0.7) fordulas = "BALRA";
             }
         } else {
-            // Kizárólagosság: Amíg tart a fordulat, minden más mozgás le van tiltva
+            // Kizárólagosság: Amíg tart a fordulat (kitekerve vagyunk), minden más mozgás le van tiltva
             dontes = "SEMMI";
             fuggoleges = "SEMMI";
             aktualisSebesseg = "STOP";
 
-            // Kikapcsolási holttér kapuk (csak ha a telefon szöge visszatér a belső zónába)
+            // Kikapcsolási szűkített kapuk (Csak ha a törzs teljesen visszafordul középre)
+            // Biztosítva: balból/jobból nem jöhet a túloldal, csak visszatérés ALAP állapotba!
             if (fordulas === "JOBBRA") {
-                if (ay > -0.4) fordulas = "SEMMI";
+                if (ay > -0.2) fordulas = "SEMMI";
             } else if (fordulas === "BALRA") {
-                if (ay < 0.3) fordulas = "SEMMI";
+                if (ay < 0.1) fordulas = "SEMMI";
             }
         }
 
