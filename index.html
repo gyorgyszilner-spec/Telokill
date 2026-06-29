@@ -271,6 +271,7 @@
 <!-- === 4. RÉSZ VÉGE === -->
 
 
+   <!-- === 5. RÉSZ KEZDETE: JAVÍTOTT ALAPÁLLAPOT-KAPU ÉS RITMUS v2.7.4 === -->
     function runNextExercise() {
         if (currentExerciseIndex >= exercises.length) {
             finishCalibration();
@@ -279,19 +280,28 @@
 
         const currentEx = exercises[currentExerciseIndex];
         
-        // Okos Alapállapot-kapu (Gatekeeper) ellenőrzése
+        // 🔥 JAVÍTÁS: Ha nem vagy alapállapotban, a figyelmeztetés csak EGYSZER szólal meg,
+        // és a kód nem hívja meg önmagát végtelenül, megszüntetve a "kér kér" akadást.
         if (currentEx.checkAlap && (dontes !== "SEMMI" || fuggoleges !== "SEMMI" || mozgásÁllapot !== "STOP")) {
             instructionDiv.textContent = "ÁLLJ VISSZA ALAPÁLLAPOTBA!";
             instructionDiv.classList.add("alert-mode");
             timerDiv.textContent = "⚠";
-            speak("Kérlek, állj vissza alapállapotba a következő gyakorlathoz!");
             
-            setTimeout(runNextExercise, 500);
+            // Csak akkor beszél, ha a felirat még nem volt piros riasztási módban
+            if (!instructionDiv.dataset.alerted) {
+                speak("Kérlek, állj vissza alapállapotba a következő gyakorlathoz!");
+                instructionDiv.dataset.alerted = "true";
+            }
+            
+            // Csendes háttér-ellenőrzés 600ms-onként, speak() hívás nélkül
+            setTimeout(runNextExercise, 600);
             return;
         }
 
-        // Felkészülés a kétgombos indításra
+        // Tiszta alapállapot elérésekor a riasztási retesz törlődik
         instructionDiv.classList.remove("alert-mode");
+        delete instructionDiv.dataset.alerted;
+        
         currentExerciseId = currentEx.id;
         instructionDiv.textContent = currentEx.name;
         statusDiv.textContent = `Gyakorlat: ${currentExerciseIndex + 1} / ${exercises.length}`;
@@ -303,18 +313,15 @@
     }
 
     function inditÉlesMeresIdozito() {
-        let timeLeft = 7; // Gyakorlatonként pontosan 7 másodperc mérési időablak
+        let timeLeft = 7; 
         timerDiv.textContent = timeLeft;
 
         exerciseTimer = setInterval(() => {
             timeLeft--;
             if (timeLeft <= 0) {
                 clearInterval(exerciseTimer);
-                isRecording = false; // Adatgyűjtés leállítása
-                
-                // Azonnali, fuggő, fagyásbiztos Blob letöltés az aktuális gyakorlatról
+                isRecording = false; 
                 downloadCurrentExerciseCSV(); 
-                
                 currentExerciseIndex++;
                 runNextExercise();
             } else {
@@ -328,6 +335,7 @@
         if (event.alpha !== null) rawAlpha = event.alpha;
     }
 <!-- === 5. RÉSZ VÉGE === -->
+
 
 
     function handleMotion(event) {
