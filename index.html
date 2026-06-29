@@ -492,17 +492,21 @@
 <!-- === 7. RÉSZ VÉGE === -->
 
 
+   <!-- === 8. RÉSZ KEZDETE: ELTOLT HÁTTÉRBLOB MENTÉS ÉS LEZÁRÁS v2.7.5 === -->
     function finishCalibration() {
         isRecording = false;
         window.removeEventListener('devicemotion', handleMotion);
         window.removeEventListener('deviceorientation', handleOrientation);
+        
+        // Az utolsó gyakorlat adatainak kimentése a teszt legvégén
+        if (sensorLogs.length > 0) downloadCurrentExerciseCSV(currentExerciseId, currentExerciseIndex);
         
         instructionDiv.textContent = "Összes mérés kész!";
         timerDiv.textContent = "✔";
         speak("Gratulálok, a teljes tesztsorozat befejeződött!");
     }
 
-    function downloadCurrentExerciseCSV() {
+    function downloadCurrentExerciseCSV(exId, exIndex) {
         if (sensorLogs.length === 0) return;
 
         let csvContent = "Time_ms,Exercise_ID,Raw_X,Raw_Y,Raw_Z,Raw_Alpha,Nyers_Magnitude,Filter_X,Filter_Y,Filter_Z,Calc_DolesZ,Calc_DolesX,Calc_YawDelta,Calc_Intenzitas,Calc_Ritmus_ms,Motor_Retesz,OUTPUT_MotorState,OUTPUT_TurnState,OUTPUT_Btn_Bal,OUTPUT_Btn_Jobb\n";
@@ -511,26 +515,21 @@
             csvContent += `${log.time},${log.exercise},${log.rx},${log.ry},${log.rz},${log.rAlpha},${log.magnitude},${log.ax},${log.ay},${log.az},${log.dolesZ},${log.dolesX},${log.yawDelta},${log.intenzitas},${log.ritmus},${log.retesz},${log.motorState},${log.turnState},${log.btnB},${log.btnJ}\n`;
         });
 
-        // Fagyásbiztos Blob generálás az aktuális 7 másodperces gyakorlatról
+        // Biztonságos Blob generálás a háttérben
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         
         const link = document.createElement("a");
         link.setAttribute("href", url);
         
-        // A fájlnév tartalmazza a gyakorlat azonosítóját is a könnyebb rendezéshez
         const mostIdo = new Date().toISOString().slice(11,19).replace(/:/g, '-');
-        link.setAttribute("download", `${currentExerciseIndex + 1}_${currentExerciseId}_${mostIdo}.csv`);
+        link.setAttribute("download", `${exIndex}_${exId}_${mostIdo}.csv`);
         
         document.body.appendChild(link);
         link.click();
         
-        // Memória azonnali takarítása a letöltés után, hogy ne teljen meg a telefon
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(url), 100);
-        
-        // Puffer kiürítése a következő gyakorlathoz
-        sensorLogs = [];
     }
 </script>
 </body>
