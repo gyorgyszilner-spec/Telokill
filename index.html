@@ -1,9 +1,10 @@
+<!-- === 1. RÉSZ ELEJE === -->
 <!DOCTYPE html>
 <html lang="hu">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Fal-Kép Motor v7.5.3</title>
+<title>Fal-Kép Motor v7.5.4</title>
 
 <style>
 body {
@@ -100,13 +101,13 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.5.3</div>
+    <div id="verzio">v7.5.4</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.5.3";
+const VERZIÓ = "v7.5.4";
 let fut = false;
 
 // Nyers és szűrt adatok
@@ -132,6 +133,9 @@ let utolsoSzog = 0;
 // Gombok állapota
 let balGombLenyomva = false;
 let jobbGombLenyomva = false;
+/* === 1. RÉSZ VÉGE / 2. RÉSZ ELEJE === */
+
+/* === 2. RÉSZ ELEJE === */
 
 /* =========================================================================
    ENGEDÉLY ÉS KALIBRÁCIÓS INDÍTÁS
@@ -175,7 +179,7 @@ function szenzor(e) {
     ay = ay * 0.7 + a.y * 0.3;
     az = az * 0.7 + a.z * 0.3;
 
-    // SÉTA ÉS FUTÁS FINOMHANGOLÁS: A lépésdetektornak átadjuk a NYERS a.z értéket is!
+    // A lépésdetektornak átadjuk a NYERS a.z értéket is az érzékenységhez!
     if (fut) feldolgoz(a.z);
 }
 
@@ -198,17 +202,22 @@ function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszo
     }
     return "SEMMI";
 }
+/* === 2. RÉSZ VÉGE / 3. RÉSZ ELEJE === */
+
+/* === 3. RÉSZ ELEJE === */
 
 /* =========================================================================
-   KETTŐS LÉPÉSDETEKTOR - FINOMHANGOLT KÜSZÖBÖKKEL (V7.5.3)
+   KETTŐS LÉPÉSDETEKTOR - KERESZT-ELLENŐRZÖTT FÚZIÓS VERZIÓ (V7.5.4)
    ========================================================================= */
 function detectLepes(jelenlegiDz, nyersDz, szogValtozas) {
     const most = performance.now();
     
-    // SÉTA KORREKCIÓ: Ha a szűrt dz kicsi, a nyers dz változást (nyersDz) is figyeljük
-    // Érzékenyített holttér határok: szűrt 0.4 m/s² VAGY nyers 0.8 m/s², és 0.6° fok mintánként
+    // Fizikai rázkódás detektálása a szűrt (0.4) vagy nyers (0.8) Z-tengely alapján
     const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.4 || Math.abs(nyersDz) > 0.8;
-    const vanDőléshullámTüske = Math.abs(szogValtozas) > 0.6;
+    
+    // KERESZT-ELLENŐRZÉS: A szögváltozás önmagában NEM lépés!
+    // Csak akkor fogadjuk el, ha valódi függőleges fizikai rázkódás is kíséri.
+    const vanDőléshullámTüske = Math.abs(szogValtozas) > 0.6 && vanFüggőlegesRázkódás;
 
     if (vanFüggőlegesRázkódás || vanDőléshullámTüske) {
         if (most - utolsoLepesIdo > 180) {
@@ -219,8 +228,7 @@ function detectLepes(jelenlegiDz, nyersDz, szogValtozas) {
             // Kombinált intenzitás kiszámítása
             const aktualisIntenzitas = Math.abs(jelenlegiDz) + (Math.abs(szogValtozas) * 0.4);
 
-            // FUTÁS RESTART LOGIKA: Ha hirtelen nagy intenzitású tüske jön (sprint indul), 
-            // azonnal töröljük a régi séta-ritmus emlékét, hogy ne húzza fel az átlagot.
+            // FUTÁS RESTART: Ha hirtelen nagy intenzitás jön, töröljük a régi séta-ritmust
             if (aktualisIntenzitas > 2.2 && lepesIntenzitások.length > 0 && lepesIntenzitások[lepesIntenzitások.length - 1] < 1.5) {
                 lepesIdokozok = [];
                 lepesIntenzitások = [];
@@ -235,6 +243,10 @@ function detectLepes(jelenlegiDz, nyersDz, szogValtozas) {
     }
     utolsoGyorsulasZ = jelenlegiDz;
 }
+/* === 3. RÉSZ VÉGE / 4. RÉSZ ELEJE === */
+
+/* === 4. RÉSZ ELEJE === */
+
 /* =========================================================================
    FŐ FELDOLGOZÓ LOGIKA ÉS RETESZELÉS
    ========================================================================= */
@@ -257,7 +269,7 @@ function feldolgoz(nyersZ) {
     const dz = az - raz;
     const nyersDz = nyersZ - raz;
 
-    // Lépések rögzítése a nyers adatok átadásával
+    // Lépések rögzítése a kereszt-ellenőrzött fúziós detektorral
     detectLepes(dz, nyersDz, szogValtozas);
 
     // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE
@@ -287,8 +299,12 @@ function feldolgoz(nyersZ) {
         lepesIntenzitások = [];
     }
 
+    // 2. STATIKUS ÁLLAPOTOK FOLYAMATOS FRISSÍTÉSE (Függetlenítve a retesztől!)
+    dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
+    fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
+
     /* =========================================================================
-       ZÁROLÁSI LOGIKA (RETESZ)
+       ZÁROLÁSI ÉS RETESZELÉSI LOGIKA
        ========================================================================= */
     if (mozgásZárolva) {
         if (aktualisSebesseg === "STOP") {
@@ -297,18 +313,16 @@ function feldolgoz(nyersZ) {
         } else {
             mozgásÁllapot = aktualisSebesseg;
         }
-    }
-
-        // 2. STATIKUS ÁLLAPOTOK (CSAK HA NINCS RETESZ)
-    if (!mozgásZárolva) {
-        dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
-        fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
-
+    } else {
+        // Ha nincs aktív mozgásretesz, és tiszta mozgást észlelünk, élesítjük a reteszt
         if (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg !== "STOP") {
             mozgásZárolva = true;
             mozgásÁllapot = aktualisSebesseg;
         }
     }
+/* === 4. RÉSZ VÉGE / 5. RÉSZ ELEJE === */
+
+/* === 5. RÉSZ ELEJE === */
 
     // 3. MEGJELENÍTÉS ÉS HIERARCHIA
     let kijelzendoAllapot = "ALAP";
@@ -323,7 +337,7 @@ function feldolgoz(nyersZ) {
 
     document.getElementById("allapot").textContent = kijelzendoAllapot;
 
-    // Telemetria kiírása
+    // Telemetria kiírása (A javított hatókörű változókkal)
     document.getElementById("panel").textContent =
         "VERZIÓ: " + VERZIÓ + "\n\n" +
         "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
@@ -360,3 +374,4 @@ jGomb.addEventListener("mouseup", () => { jobbGombLenyomva = false; });
 
 </body>
 </html>
+<!-- === 5. RÉSZ VÉGE === -->
