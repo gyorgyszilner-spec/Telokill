@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Motion Controller Prototype</title>
+<title>Vertical Motion Controller</title>
 <style>
   body { margin:0; overflow:hidden; background:#222; }
 
@@ -21,8 +21,7 @@
     height:50px;
     background:#0f0;
     left:50vw;
-    top:60vh;
-    transform:translate(-50%, -50%);
+    transform:translateX(-50%);
   }
 
   #hud {
@@ -65,136 +64,105 @@ let player = document.getElementById("player");
 let hud = document.getElementById("hud");
 let calibBtn = document.getElementById("calibBtn");
 
-let posX = window.innerWidth / 2;
-let posY = window.innerHeight * 0.6;
+// pozíciók
+let groundY = window.innerHeight * 0.6;
+let posY = groundY;
 
-// CONTROLLER STATE
-let moveForward = 0;
-let leanLeft = false;
-let leanRight = false;
-let jump = false;
-let crouch = false;
-
-// RAW SENSOR
+// szenzorok
 let pitch = 0, roll = 0, yaw = 0;
-let accelX = 0, accelY = 0, accelZ = 0;
+let accelZ = 0;
 
-// BASELINE + NOISE
-let baseline = {
-  pitch: 0,
-  roll: 0,
-  accelZ: 0
-};
-let noise = {
-  pitch: 0,
-  roll: 0,
-  accelZ: 0
-};
+// baseline + noise
+let baseline = { pitch:0, accelZ:0 };
+let noise = { pitch:0, accelZ:0 };
 
 let calibrated = false;
 let calibrating = false;
 let calibSamples = [];
 
-// STEP DETECTION
+// járás/futás detektálás
 let zHistory = [];
 
 // --- SENSOR INPUT ---
 window.addEventListener("deviceorientation", (e) => {
   pitch = e.beta || 0;
-  roll = e.gamma || 0;
-  yaw = e.alpha || 0;
 });
 
 window.addEventListener("devicemotion", (e) => {
   const a = e.accelerationIncludingGravity;
   if (!a) return;
-  accelX = a.x || 0;
-  accelY = a.y || 0;
   accelZ = a.z || 0;
 
-  // kalibrációs mintagyűjtés
   if (calibrating) {
-    calibSamples.push({
-      pitch, roll, accelZ
-    });
+    calibSamples.push({ pitch, accelZ });
   }
 
-  // lépésmintázat
   zHistory.push(accelZ);
   if (zHistory.length > 50) zHistory.shift();
 });
 
-// --- KALIBRÁCIÓ ---
+// --- CALIBRATION ---
 function startCalibration() {
   calibSamples = [];
   calibrating = true;
   calibrated = false;
-  hud.innerText = "Kalibráció: tartsd stabilan a telefont (5 mp)…";
+  hud.innerText = "Kalibráció: tartsd stabilan (5 mp)…";
   setTimeout(finishCalibration, 5000);
 }
 
 function finishCalibration() {
   calibrating = false;
+
   if (calibSamples.length < 10) {
-    hud.innerText = "Kalibráció sikertelen, próbáld újra.";
+    hud.innerText = "Kalibráció sikertelen.";
     return;
   }
 
   // átlag
-  let sumPitch = 0, sumRoll = 0, sumZ = 0;
+  let sumPitch = 0, sumZ = 0;
   calibSamples.forEach(s => {
     sumPitch += s.pitch;
-    sumRoll += s.roll;
     sumZ += s.accelZ;
   });
   baseline.pitch = sumPitch / calibSamples.length;
-  baseline.roll = sumRoll / calibSamples.length;
   baseline.accelZ = sumZ / calibSamples.length;
 
-  // szórás (noise)
-  let varPitch = 0, varRoll = 0, varZ = 0;
+  // szórás
+  let varPitch = 0, varZ = 0;
   calibSamples.forEach(s => {
     varPitch += Math.pow(s.pitch - baseline.pitch, 2);
-    varRoll += Math.pow(s.roll - baseline.roll, 2);
     varZ += Math.pow(s.accelZ - baseline.accelZ, 2);
   });
   noise.pitch = Math.sqrt(varPitch / calibSamples.length);
-  noise.roll = Math.sqrt(varRoll / calibSamples.length);
   noise.accelZ = Math.sqrt(varZ / calibSamples.length);
 
   calibrated = true;
-  hud.innerText = "Kalibrálva. Mozoghatsz.";
+  posY = groundY; // középre ugrás
+  player.style.top = posY + "px";
+
+  hud.innerText = "Kalibrálva.";
 }
 
-// --- FINOM BASELINE-IGAZÍTÁS (C) ---
-function refineBaseline() {
+// --- MOTION DETECTION ---
+function detectMotion() {
   if (!calibrated || calibrating) return;
 
-  // ha alig van mozgás → finoman közelítünk az aktuális értékhez
-  const smallPitchMove = Math.abs(pitch - baseline.pitch) < noise.pitch;
-  const smallRollMove = Math.abs(roll - baseline.roll) < noise.roll;
-  const smallZMove = Math.abs(accelZ - baseline.accelZ) < noise.accelZ;
+  // --- GUGGOLÁS ---
+  const crouch = pitch > baseline.pitch + (noise.pitch + 15);
 
-  if (smallPitchMove && smallRollMove && smallZMove) {
-    const alpha = 0.01; // lassú csúsztatás
-    baseline.pitch = baseline.pitch * (1 - alpha) + pitch * alpha;
-    baseline.roll = baseline.roll * (1 - alpha) + roll * alpha;
-    baseline.accelZ = baseline.accelZ * (1 - alpha) + accelZ * alpha;
-  }
-}
-
-// --- MINTÁZAT-ALAPÚ MOZGÁSDETektálás ---
-function detectMotion() {
-  if (!calibrated || calibrating) {
-    moveForward = 0;
-    leanLeft = false;
-    leanRight = false;
-    jump = false;
-    crouch = false;
+  if (crouch) {
+    posY = groundY + 40; // lesüllyed
     return;
   }
 
-  // FUTÁS / JÁRÁS – lépésszám becslés
+  // --- UGRÁS ---
+  const zDelta = accelZ - baseline.accelZ;
+  if (Math.abs(zDelta) > noise.accelZ * 4) {
+    posY = groundY - 50; // felugrik
+    return;
+  }
+
+  // --- JÁRÁS / FUTÁS ---
   let peaks = 0;
   for (let i = 1; i < zHistory.length - 1; i++) {
     const z0 = zHistory[i-1], z1 = zHistory[i], z2 = zHistory[i+1];
@@ -202,73 +170,26 @@ function detectMotion() {
       peaks++;
     }
   }
-  const freq = peaks / 1.0; // ~Hz
+  const freq = peaks / 1.0;
 
   if (freq > 1 && freq < 2) {
-    moveForward = 0.4; // walk
+    posY = groundY - 20; // járás ritmus
   } else if (freq >= 2 && freq < 3.5) {
-    moveForward = 1.0; // run
+    posY = groundY - 35; // futás ritmus
   } else {
-    moveForward = 0;   // stand
-  }
-
-  // DŐLÉS
-  leanLeft = (roll < baseline.roll - (noise.roll + 5));
-  leanRight = (roll > baseline.roll + (noise.roll + 5));
-
-  // GUGGOLÁS
-  crouch = (pitch > baseline.pitch + (noise.pitch + 15));
-
-  // UGRÁS – egyszerű impulzusdetektálás
-  const zDelta = accelZ - baseline.accelZ;
-  if (Math.abs(zDelta) > noise.accelZ * 4) {
-    jump = true;
+    posY = groundY; // alapállapot
   }
 }
 
 // --- GAME LOOP ---
 function loop() {
   detectMotion();
-  refineBaseline();
 
-  // előre mozgás
-  posY -= moveForward * 3;
-
-  // oldalra dőlés
-  if (leanLeft) posX -= 3;
-  if (leanRight) posX += 3;
-
-  // ugrás
-  if (jump) {
-    posY -= 40;
-    jump = false;
-  }
-
-  // gravitáció
-  posY += 2;
-
-  // talaj
-  const groundLevel = window.innerHeight * 0.6;
-  if (posY > groundLevel) posY = groundLevel;
-
-  // guggolás
-  player.style.height = crouch ? "25px" : "50px";
-
-  // clamp
-  posX = Math.max(0, Math.min(window.innerWidth - 50, posX));
-
-  // render
-  player.style.left = posX + "px";
   player.style.top = posY + "px";
 
-  // HUD
   hud.innerText =
-    "Fwd:" + moveForward.toFixed(2) +
-    " | LeanL:" + leanLeft +
-    " | LeanR:" + leanRight +
-    " | Crouch:" + crouch +
-    " | pitch:" + pitch.toFixed(1) +
-    " | roll:" + roll.toFixed(1);
+    "pitch:" + pitch.toFixed(1) +
+    " | accelZ:" + accelZ.toFixed(2);
 
   requestAnimationFrame(loop);
 }
