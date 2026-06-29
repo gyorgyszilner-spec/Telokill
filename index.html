@@ -295,44 +295,29 @@ function feldolgoz() {
         }
     }
 
-    // 2. STATIKUS ÁLLAPOTOK ÉS FORDULÁS HIERARCHIA
+    // 2. STATIKUS ÁLLAPOTOK ÉS FORDULÁS HIERARCHIA (A megadott logfájlok alapján)
     if (!mozgásZárolva) {
         
-        // Ha nem fordulunk, a bázist folyamatosan frissítjük az aktuális alaphelyzetheb
-        if (fordulas === "SEMMI") {
-            fordulasBazisSzog = aktualisSzog;
-            aktualisRelativSzog = 0;
-        } else {
-            // Ha már fordulunk, kiszámoljuk a bázistól mért fix elmozdulást
-            aktualisRelativSzog = aktualisSzog - fordulasBazisSzog;
-            if (aktualisRelativSzog > 180) aktualisRelativSzog -= 360;
-            if (aktualisRelativSzog < -180) aktualisRelativSzog += 360;
-        }
-
-        // Szigorú korlátozás: Fordulás csak akkor indulhat, ha teljesen csendben vagyunk (ALAP / STOP)
-        let teljesenCsendes = (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg === "STOP");
+        // Szigorú feltétel: Csak Alaphelyzetből (STOP és semmi más mozgás) lehet elfordulni
+        let alapallapotbanVan = (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg === "STOP");
 
         if (fordulas === "SEMMI") {
-            if (teljesenCsendes) {
-                // Digitális bekapcsolási küszöbök (beugrás) a bázistól mért szög alapján
-                if (dolesElteres > 25) fordulas = "JOBBRA";
-                else if (dolesElteres < -25) fordulas = "BALRA";
+            if (alapallapotbanVan) {
+                // Beugrási küszöbök a Filter_Y (ay) elmozdulásából
+                if (ay < -1.2) fordulas = "JOBBRA";
+                else if (ay > 1.0) fordulas = "BALRA";
             }
         } else {
-            // Amíg fordul, addig lezárjuk az összes többi statikus mozgást (Kizárólagosság)
+            // Kizárólagosság: Amíg tart a fordulat, minden más mozgás le van tiltva
             dontes = "SEMMI";
             fuggoleges = "SEMMI";
             aktualisSebesseg = "STOP";
 
-            // Digitális kikapcsolási kapuk hiszterézissel (Csak ha visszatér a belső holttér zónába)
+            // Kikapcsolási holttér kapuk (csak ha a telefon szöge visszatér a belső zónába)
             if (fordulas === "JOBBRA") {
-                if (dolesElteres < 12) {
-                    fordulas = "SEMMI";
-                }
+                if (ay > -0.4) fordulas = "SEMMI";
             } else if (fordulas === "BALRA") {
-                if (dolesElteres > -12) {
-                    fordulas = "SEMMI";
-                }
+                if (ay < 0.3) fordulas = "SEMMI";
             }
         }
 
@@ -373,8 +358,8 @@ function feldolgoz() {
         "BAL GOMB: " + (balGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n" +
         "JOBB GOMB: " + (jobbGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n\n" +
         "LÉPÉSRITMUS:       " + atlagIdokoz.toFixed(0) + " ms\n" +
-        " -> SKÁLA: FUTÁS < 310 ms | JÁRÁS > 310 ms\n\n" +
-        "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
+        "Filter_X (ax):     " + ax.toFixed(2) + " m/s²\n" +
+        "Filter_Y (ay):     " + ay.toFixed(2) + " m/s²\n" +
         "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
 }
 
