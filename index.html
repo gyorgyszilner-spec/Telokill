@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Fal-Kép Motor v7.7.5</title>
+<title>Fal-Kép Motor v7.8.0</title>
 
 <style>
 body {
@@ -101,13 +101,13 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.7.5</div>
+    <div id="verzio">v7.8.0</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.7.5";
+const VERZIÓ = "v7.8.0";
 let fut = false;
 
 // Nyers és szűrt adatok (V7.2.3)
@@ -131,8 +131,9 @@ let mozgásÁllapot = "STOP";
 let mozgásZárolva = false;
 let utolsoSzog = 0;
 
-// Fordulás integrátor a relatív szögekből
-let felhalmozottFordulatSzog = 0;
+// Fordulás fix kiindulópont bázisa
+let fordulasBazisSzog = 0;
+let aktualisRelativSzog = 0;
 
 // Gombok állapota
 let balGombLenyomva = false;
@@ -167,7 +168,6 @@ document.getElementById("inditas").onclick = async () => {
         rax = ax;
         ray = ay;
         raz = az;
-        felhalmozottFordulatSzog = 0;
         fut = true;
         document.getElementById("allapot").textContent = "ALAP";
     }, 1500);
@@ -210,7 +210,6 @@ function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszo
 function detectLepes(jelenlegiDz, szogValtozas) {
     const most = performance.now();
     
-    // Holttér határok: 0.9 m/s² és 2.8° fok mintánként
     const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.9 && Math.abs(utolsoGyorsulasZ) <= 0.9;
     const vanDőléshullámTüske = Math.abs(szogValtozas) > 2.8;
 
@@ -223,7 +222,6 @@ function detectLepes(jelenlegiDz, szogValtozas) {
             lepesIdokozok.push(idokoz);
             if (lepesIdokozok.length > 3) lepesIdokozok.shift();
 
-            // Kombinált intenzitás pontszám (Rázkódás + dőléshullám sebesség)
             const aktualisIntenzitas = Math.abs(jelenlegiDz) + (Math.abs(szogValtozas) * 0.4);
             lepesIntenzitások.push(aktualisIntenzitas);
             if (lepesIntenzitások.length > 3) lepesIntenzitások.shift();
@@ -299,9 +297,16 @@ function feldolgoz() {
 
     // 2. STATIKUS ÁLLAPOTOK ÉS FORDULÁS HIERARCHIA
     if (!mozgásZárolva) {
-        // Relatív szögsebesség integrálása a fordulás követéséhez
-        if (Math.abs(szogValtozas) > 0.5) {
-            felhalmozottFordulatSzog += szogValtozas;
+        
+        // Ha nem fordulunk, a bázist folyamatosan frissítjük az aktuális alaphelyzetheb
+        if (fordulas === "SEMMI") {
+            fordulasBazisSzog = aktualisSzog;
+            aktualisRelativSzog = 0;
+        } else {
+            // Ha már fordulunk, kiszámoljuk a bázistól mért fix elmozdulást
+            aktualisRelativSzog = aktualisSzog - fordulasBazisSzog;
+            if (aktualisRelativSzog > 180) aktualisRelativSzog -= 360;
+            if (aktualisRelativSzog < -180) aktualisRelativSzog += 360;
         }
 
         // Szigorú korlátozás: Fordulás csak akkor indulhat, ha teljesen csendben vagyunk (ALAP / STOP)
@@ -309,26 +314,24 @@ function feldolgoz() {
 
         if (fordulas === "SEMMI") {
             if (teljesenCsendes) {
-                // Digitális bekapcsolási kapuk az integrált szögből
-                if (felhalmozottFordulatSzog > 35) fordulas = "JOBBRA";
-                else if (felhalmozottFordulatSzog < -35) fordulas = "BALRA";
+                // Digitális bekapcsolási küszöbök (beugrás) a bázistól mért szög alapján
+                if (dolesElteres > 25) fordulas = "JOBBRA";
+                else if (dolesElteres < -25) fordulas = "BALRA";
             }
         } else {
-            // Amíg fordul, addig lezárjuk a többi statikus mozgást (Kizárólagosság)
+            // Amíg fordul, addig lezárjuk az összes többi statikus mozgást (Kizárólagosság)
             dontes = "SEMMI";
             fuggoleges = "SEMMI";
             aktualisSebesseg = "STOP";
 
-            // Digitális kikapcsolási kapuk hiszterézissel (Visszafordulás a deadzone-ba)
+            // Digitális kikapcsolási kapuk hiszterézissel (Csak ha visszatér a belső holttér zónába)
             if (fordulas === "JOBBRA") {
-                if (felhalmozottFordulatSzog < 15) {
+                if (dolesElteres < 12) {
                     fordulas = "SEMMI";
-                    felhalmozottFordulatSzog = 0; // Alaphelyzet reset megálláskor
                 }
             } else if (fordulas === "BALRA") {
-                if (felhalmozottFordulatSzog > -15) {
+                if (dolesElteres > -12) {
                     fordulas = "SEMMI";
-                    felhalmozottFordulatSzog = 0; // Alaphelyzet reset megálláskor
                 }
             }
         }
@@ -371,7 +374,6 @@ function feldolgoz() {
         "JOBB GOMB: " + (jobbGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n\n" +
         "LÉPÉSRITMUS:       " + atlagIdokoz.toFixed(0) + " ms\n" +
         " -> SKÁLA: FUTÁS < 310 ms | JÁRÁS > 310 ms\n\n" +
-        "FORDULAT INTEGRÁL: " + felhalmozottFordulatSzog.toFixed(1) + "°\n" +
         "DŐLÉS ELTÉRÉS (fok): " + dolesElteres.toFixed(1) + "°\n" +
         "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
 }
