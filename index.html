@@ -37,147 +37,243 @@
     font-size:12px;
     pointer-events:none;
   }
+
+  #calibBtn {
+    position:fixed;
+    top:5px;
+    right:5px;
+    z-index:10;
+    padding:6px 10px;
+    font-size:12px;
+    font-family:monospace;
+    background:#333;
+    color:#0f0;
+    border:1px solid #0f0;
+    cursor:pointer;
+  }
 </style>
 </head>
 <body>
 
 <div id="ground"></div>
 <div id="player"></div>
-<div id="hud">Calibrating…</div>
+<div id="hud">Nyomd meg a CALIBRATE gombot.</div>
+<button id="calibBtn">CALIBRATE</button>
 
 <script>
 let player = document.getElementById("player");
 let hud = document.getElementById("hud");
+let calibBtn = document.getElementById("calibBtn");
 
 let posX = window.innerWidth / 2;
 let posY = window.innerHeight * 0.6;
 
-// --- CONTROLLER STATE ---
+// CONTROLLER STATE
 let moveForward = 0;
 let leanLeft = false;
 let leanRight = false;
 let jump = false;
 let crouch = false;
 
-// --- CALIBRATION ---
-let neutralPitch = 0;
-let neutralRoll = 0;
+// RAW SENSOR
+let pitch = 0, roll = 0, yaw = 0;
+let accelX = 0, accelY = 0, accelZ = 0;
+
+// BASELINE + NOISE
+let baseline = {
+  pitch: 0,
+  roll: 0,
+  accelZ: 0
+};
+let noise = {
+  pitch: 0,
+  roll: 0,
+  accelZ: 0
+};
+
 let calibrated = false;
+let calibrating = false;
+let calibSamples = [];
 
-// --- STEP DETECTION ---
+// STEP DETECTION
 let zHistory = [];
-let lastAccelZ = 0;
-
-// --- ORIENTATION ---
-let pitch = 0;
-let roll = 0;
-let yaw = 0;
-
-// --- CALIBRATE ---
-function calibrate() {
-    neutralPitch = pitch;
-    neutralRoll = roll;
-    calibrated = true;
-    hud.innerText = "Ready";
-}
 
 // --- SENSOR INPUT ---
 window.addEventListener("deviceorientation", (e) => {
-    pitch = e.beta;
-    roll = e.gamma;
-    yaw = e.alpha;
-
-    if (!calibrated) calibrate();
+  pitch = e.beta || 0;
+  roll = e.gamma || 0;
+  yaw = e.alpha || 0;
 });
 
 window.addEventListener("devicemotion", (e) => {
-    const a = e.accelerationIncludingGravity;
-    if (!a) return;
+  const a = e.accelerationIncludingGravity;
+  if (!a) return;
+  accelX = a.x || 0;
+  accelY = a.y || 0;
+  accelZ = a.z || 0;
 
-    const z = a.z;
-    const dz = Math.abs(z - lastAccelZ);
-    lastAccelZ = z;
+  // kalibrációs mintagyűjtés
+  if (calibrating) {
+    calibSamples.push({
+      pitch, roll, accelZ
+    });
+  }
 
-    // Collect Z history for step frequency
-    zHistory.push(z);
-    if (zHistory.length > 30) zHistory.shift();
+  // lépésmintázat
+  zHistory.push(accelZ);
+  if (zHistory.length > 50) zHistory.shift();
 });
 
-// --- MOTION RECOGNITION ---
+// --- KALIBRÁCIÓ ---
+function startCalibration() {
+  calibSamples = [];
+  calibrating = true;
+  calibrated = false;
+  hud.innerText = "Kalibráció: tartsd stabilan a telefont (5 mp)…";
+  setTimeout(finishCalibration, 5000);
+}
+
+function finishCalibration() {
+  calibrating = false;
+  if (calibSamples.length < 10) {
+    hud.innerText = "Kalibráció sikertelen, próbáld újra.";
+    return;
+  }
+
+  // átlag
+  let sumPitch = 0, sumRoll = 0, sumZ = 0;
+  calibSamples.forEach(s => {
+    sumPitch += s.pitch;
+    sumRoll += s.roll;
+    sumZ += s.accelZ;
+  });
+  baseline.pitch = sumPitch / calibSamples.length;
+  baseline.roll = sumRoll / calibSamples.length;
+  baseline.accelZ = sumZ / calibSamples.length;
+
+  // szórás (noise)
+  let varPitch = 0, varRoll = 0, varZ = 0;
+  calibSamples.forEach(s => {
+    varPitch += Math.pow(s.pitch - baseline.pitch, 2);
+    varRoll += Math.pow(s.roll - baseline.roll, 2);
+    varZ += Math.pow(s.accelZ - baseline.accelZ, 2);
+  });
+  noise.pitch = Math.sqrt(varPitch / calibSamples.length);
+  noise.roll = Math.sqrt(varRoll / calibSamples.length);
+  noise.accelZ = Math.sqrt(varZ / calibSamples.length);
+
+  calibrated = true;
+  hud.innerText = "Kalibrálva. Mozoghatsz.";
+}
+
+// --- FINOM BASELINE-IGAZÍTÁS (C) ---
+function refineBaseline() {
+  if (!calibrated || calibrating) return;
+
+  // ha alig van mozgás → finoman közelítünk az aktuális értékhez
+  const smallPitchMove = Math.abs(pitch - baseline.pitch) < noise.pitch;
+  const smallRollMove = Math.abs(roll - baseline.roll) < noise.roll;
+  const smallZMove = Math.abs(accelZ - baseline.accelZ) < noise.accelZ;
+
+  if (smallPitchMove && smallRollMove && smallZMove) {
+    const alpha = 0.01; // lassú csúsztatás
+    baseline.pitch = baseline.pitch * (1 - alpha) + pitch * alpha;
+    baseline.roll = baseline.roll * (1 - alpha) + roll * alpha;
+    baseline.accelZ = baseline.accelZ * (1 - alpha) + accelZ * alpha;
+  }
+}
+
+// --- MINTÁZAT-ALAPÚ MOZGÁSDETektálás ---
 function detectMotion() {
-    if (!calibrated) return;
+  if (!calibrated || calibrating) {
+    moveForward = 0;
+    leanLeft = false;
+    leanRight = false;
+    jump = false;
+    crouch = false;
+    return;
+  }
 
-    // --- WALK/RUN DETECTION ---
-    let peaks = 0;
-    for (let i = 1; i < zHistory.length - 1; i++) {
-        if (zHistory[i] > zHistory[i-1] && zHistory[i] > zHistory[i+1] && zHistory[i] > neutralPitch + 1.2) {
-            peaks++;
-        }
+  // FUTÁS / JÁRÁS – lépésszám becslés
+  let peaks = 0;
+  for (let i = 1; i < zHistory.length - 1; i++) {
+    const z0 = zHistory[i-1], z1 = zHistory[i], z2 = zHistory[i+1];
+    if (z1 > z0 && z1 > z2 && (z1 - baseline.accelZ) > (noise.accelZ * 1.5)) {
+      peaks++;
     }
+  }
+  const freq = peaks / 1.0; // ~Hz
 
-    let freq = peaks / 1.0; // approx Hz
+  if (freq > 1 && freq < 2) {
+    moveForward = 0.4; // walk
+  } else if (freq >= 2 && freq < 3.5) {
+    moveForward = 1.0; // run
+  } else {
+    moveForward = 0;   // stand
+  }
 
-    if (freq > 1 && freq < 2) moveForward = 0.4;      // walk
-    else if (freq >= 2 && freq < 3.5) moveForward = 1; // run
-    else moveForward = 0;                              // stand
+  // DŐLÉS
+  leanLeft = (roll < baseline.roll - (noise.roll + 5));
+  leanRight = (roll > baseline.roll + (noise.roll + 5));
 
-    // --- LEAN ---
-    leanLeft = (roll < neutralRoll - 15);
-    leanRight = (roll > neutralRoll + 15);
+  // GUGGOLÁS
+  crouch = (pitch > baseline.pitch + (noise.pitch + 15));
 
-    // --- CROUCH ---
-    crouch = (pitch > neutralPitch + 25);
-
-    // --- JUMP ---
-    if (Math.abs(lastAccelZ - neutralPitch) > 6) {
-        jump = true;
-    }
+  // UGRÁS – egyszerű impulzusdetektálás
+  const zDelta = accelZ - baseline.accelZ;
+  if (Math.abs(zDelta) > noise.accelZ * 4) {
+    jump = true;
+  }
 }
 
 // --- GAME LOOP ---
 function loop() {
-    detectMotion();
+  detectMotion();
+  refineBaseline();
 
-    // Move forward only if walking/running
-    posY -= moveForward * 3;
+  // előre mozgás
+  posY -= moveForward * 3;
 
-    // Lean left/right
-    if (leanLeft) posX -= 3;
-    if (leanRight) posX += 3;
+  // oldalra dőlés
+  if (leanLeft) posX -= 3;
+  if (leanRight) posX += 3;
 
-    // Jump
-    if (jump) {
-        posY -= 40;
-        jump = false;
-    }
+  // ugrás
+  if (jump) {
+    posY -= 40;
+    jump = false;
+  }
 
-    // Gravity
-    posY += 2;
+  // gravitáció
+  posY += 2;
 
-    // Ground collision
-    const groundLevel = window.innerHeight * 0.6;
-    if (posY > groundLevel) posY = groundLevel;
+  // talaj
+  const groundLevel = window.innerHeight * 0.6;
+  if (posY > groundLevel) posY = groundLevel;
 
-    // Crouch
-    player.style.height = crouch ? "25px" : "50px";
+  // guggolás
+  player.style.height = crouch ? "25px" : "50px";
 
-    // Clamp
-    posX = Math.max(0, Math.min(window.innerWidth - 50, posX));
+  // clamp
+  posX = Math.max(0, Math.min(window.innerWidth - 50, posX));
 
-    // Render
-    player.style.left = posX + "px";
-    player.style.top = posY + "px";
+  // render
+  player.style.left = posX + "px";
+  player.style.top = posY + "px";
 
-    // HUD
-    hud.innerText =
-        "Forward: " + moveForward.toFixed(2) +
-        " | LeanL: " + leanLeft +
-        " | LeanR: " + leanRight +
-        " | Crouch: " + crouch;
+  // HUD
+  hud.innerText =
+    "Fwd:" + moveForward.toFixed(2) +
+    " | LeanL:" + leanLeft +
+    " | LeanR:" + leanRight +
+    " | Crouch:" + crouch +
+    " | pitch:" + pitch.toFixed(1) +
+    " | roll:" + roll.toFixed(1);
 
-    requestAnimationFrame(loop);
+  requestAnimationFrame(loop);
 }
 
+calibBtn.addEventListener("click", startCalibration);
 loop();
 </script>
 
