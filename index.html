@@ -2,7 +2,8 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Digital Motion Controller</title>
+<title>HAR Motion Controller</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
 <style>
   body { margin:0; background:#111; color:#0f0; font-family:monospace; }
   #state {
@@ -10,149 +11,62 @@
     text-align:center;
     font-size:32px;
   }
-  #calibBtn {
-    position:fixed;
-    top:5px;
-    right:5px;
-    padding:6px 10px;
-    font-size:14px;
-    background:#333;
-    color:#0f0;
-    border:1px solid #0f0;
-    cursor:pointer;
-  }
 </style>
 </head>
 <body>
 
-<div id="state">Nyomd meg a CALIBRATE gombot.</div>
-<button id="calibBtn">CALIBRATE</button>
+<div id="state">Betöltés…</div>
 
 <script>
 let stateDiv = document.getElementById("state");
-let calibBtn = document.getElementById("calibBtn");
+let imuWindow = [];
+let model = null;
 
-// raw sensor
-let pitch = 0;
-let accelZ = 0;
+// 1) Modell betöltése
+async function loadModel() {
+  stateDiv.innerText = "Modell betöltése…";
+  model = await tf.loadLayersModel("har_model/model.json");
+  stateDiv.innerText = "Készen áll.";
+}
+loadModel();
 
-// baseline + noise
-let baseline = { pitch:0, accelZ:0 };
-let noise = { pitch:0, accelZ:0 };
-
-let calibrated = false;
-let calibrating = false;
-let calibSamples = [];
-
-// step detection
-let zHistory = [];
-
-// --- SENSOR INPUT ---
-window.addEventListener("deviceorientation", (e) => {
-  pitch = e.beta || 0;
-});
-
+// 2) IMU gyűjtés
 window.addEventListener("devicemotion", (e) => {
   const a = e.accelerationIncludingGravity;
-  if (!a) return;
-  accelZ = a.z || 0;
+  const g = e.rotationRate;
+  if (!a || !g) return;
 
-  if (calibrating) {
-    calibSamples.push({ pitch, accelZ });
-  }
+  imuWindow.push([
+    a.x || 0, a.y || 0, a.z || 0,
+    g.alpha || 0, g.beta || 0, g.gamma || 0
+  ]);
 
-  zHistory.push(accelZ);
-  if (zHistory.length > 50) zHistory.shift();
+  if (imuWindow.length > 100) imuWindow.shift();
 });
 
-// --- CALIBRATION ---
-function startCalibration() {
-  calibrating = true;
-  calibrated = false;
-  calibSamples = [];
-  stateDiv.innerText = "Kalibráció folyamatban…";
-  setTimeout(finishCalibration, 5000);
+// 3) Állapotdetektálás
+function classify() {
+  if (!model || imuWindow.length < 100) return;
+
+  const input = tf.tensor([imuWindow]);
+  const logits = model.predict(input);
+  const probs = logits.dataSync();
+
+  const labels = ["alapállapot", "sétál", "fut", "ugrás", "leguggol"];
+
+  let maxIdx = 0;
+  for (let i = 1; i < probs.length; i++) {
+    if (probs[i] > probs[maxIdx]) maxIdx = i;
+  }
+
+  stateDiv.innerText = labels[maxIdx];
+
+  input.dispose();
+  logits.dispose();
 }
 
-function finishCalibration() {
-  calibrating = false;
-
-  if (calibSamples.length < 10) {
-    stateDiv.innerText = "Kalibráció sikertelen.";
-    return;
-  }
-
-  // átlag
-  let sumPitch = 0, sumZ = 0;
-  calibSamples.forEach(s => {
-    sumPitch += s.pitch;
-    sumZ += s.accelZ;
-  });
-  baseline.pitch = sumPitch / calibSamples.length;
-  baseline.accelZ = sumZ / calibSamples.length;
-
-  // szórás
-  let varPitch = 0, varZ = 0;
-  calibSamples.forEach(s => {
-    varPitch += Math.pow(s.pitch - baseline.pitch, 2);
-    varZ += Math.pow(s.accelZ - baseline.accelZ, 2);
-  });
-  noise.pitch = Math.sqrt(varPitch / calibSamples.length);
-  noise.accelZ = Math.sqrt(varZ / calibSamples.length);
-
-  calibrated = true;
-  stateDiv.innerText = "alapállapot";
-}
-
-// --- MOTION DETECTION ---
-function detectState() {
-  if (!calibrated || calibrating) return;
-
-  // --- GUGGOLÁS ---
-  if (pitch > baseline.pitch + (noise.pitch + 15)) {
-    stateDiv.innerText = "leguggol";
-    return;
-  }
-
-  // --- UGRÁS ---
-  const zDelta = accelZ - baseline.accelZ;
-  if (Math.abs(zDelta) > noise.accelZ * 4) {
-    stateDiv.innerText = "ugrás";
-    return;
-  }
-
-  // --- SÉTA / FUTÁS ---
-  let peaks = 0;
-  for (let i = 1; i < zHistory.length - 1; i++) {
-    const z0 = zHistory[i-1], z1 = zHistory[i], z2 = zHistory[i+1];
-    if (z1 > z0 && z1 > z2 && (z1 - baseline.accelZ) > (noise.accelZ * 1.5)) {
-      peaks++;
-    }
-  }
-  const freq = peaks / 1.0;
-
-  if (freq > 1 && freq < 2) {
-    stateDiv.innerText = "sétál";
-    return;
-  }
-
-  if (freq >= 2 && freq < 3.5) {
-    stateDiv.innerText = "fut";
-    return;
-  }
-
-  // --- ALAPÁLLAPOT ---
-  stateDiv.innerText = "alapállapot";
-}
-
-// --- LOOP ---
-function loop() {
-  detectState();
-  requestAnimationFrame(loop);
-}
-
-calibBtn.addEventListener("click", startCalibration);
-loop();
+// 4) Loop
+setInterval(classify, 300);
 </script>
 
 </body>
