@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Fal-Kép Motor v7.9.0</title>
+<title>Fal-Kép Motor v8.0.0</title>
 
 <style>
 body {
@@ -101,13 +101,13 @@ body {
 
 <div class="keret">
     <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v7.9.0</div>
+    <div id="verzio">v8.0.0</div>
     <div id="allapot">VÁRAKOZÁS</div>
     <div id="panel">NYOMD A FALHOZ</div>
 </div>
 
 <script>
-const VERZIÓ = "v7.9.0";
+const VERZIÓ = "v8.0.0";
 let fut = false;
 
 // Nyers és szűrt adatok (V7.2.3)
@@ -227,7 +227,6 @@ function detectLepes(jelenlegiDz, szogValtozas) {
 }
 
 // === VÁGÁS: A SCRIPT ITT SZAKAD MEGSZAKÍTÁSRA ===
-
 /* =========================================================================
    FŐ FELDOLGOZÓ LOGIKA ÉS RETESZELÉS
    ========================================================================= */
@@ -291,21 +290,18 @@ function feldolgoz() {
         }
     }
 
-    // 2. STATIKUS ÁLLAPOTOK ÉS FORDULÁS BÁZIS HIERARCHIA
+    // 2. STATIKUS ÁLLAPOTOK ÉS BISTABIL FORDULÁS KAPCSOLÓ (v8.0.0)
     if (!mozgásZárolva) {
         
         // Szigorú feltétel: Csak Alaphelyzetből (STOP és csend) lehet elindulni
         let alapallapotbanVan = (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg === "STOP");
 
-        // Kiszámoljuk az elmozdulást az elmentett kalibrációs alapértéktől (ray)
-        let relativEltérésY = ay - ray;
-
         if (fordulas === "SEMMI") {
             if (alapallapotbanVan) {
-                // Beugrási szűkített küszöbök a kalibrált bázistól mérve (Digitális ON)
-                if (relativEltérésY < -0.8) {
+                // Nagy pofon (intenzív kezdeti lökés küszöb) -> Átvált balra vagy jobbra állapotba
+                if (szogValtozas > 3.0) {
                     fordulas = "JOBBRA";
-                } else if (relativEltérésY > 0.7) {
+                } else if (szogValtozas < -3.0) {
                     fordulas = "BALRA";
                 }
             }
@@ -315,16 +311,14 @@ function feldolgoz() {
             fuggoleges = "SEMMI";
             aktualisSebesseg = "STOP";
 
-            // Kikapcsolási kapuk (Csak ha az érték visszatér a kalibrált zóna holtterébe)
-            // Biztosítva: balból és jobbból nem ugorhat a túloldalra, csak az alap zónán át
-            if (fordulas === "JOBBRA") {
-                if (relativEltérésY > -0.2) {
-                    fordulas = "SEMMI";
-                }
-            } else if (fordulas === "BALRA") {
-                if (relativEltérésY < 0.1) {
-                    fordulas = "SEMMI";
-                }
+            // Visszaállítás (Csak ha megérkezik a nagy ellentétes pofon)
+            // BALRA állapotból csak egy határozott JOBBRA rántás hoz vissza ALAP-ba
+            if (fordulas === "BALRA" && szogValtozas > 3.0) {
+                fordulas = "SEMMI";
+            } 
+            // JOBBRA állapotból csak egy határozott BALRA rántás hoz vissza ALAP-ba
+            else if (fordulas === "JOBBRA" && szogValtozas < -3.0) {
+                fordulas = "SEMMI";
             }
         }
 
@@ -364,9 +358,9 @@ function feldolgoz() {
         "FORDULÁS STÁTUSZ: " + fordulas + "\n\n" +
         "BAL GOMB: " + (balGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n" +
         "JOBB GOMB: " + (jobbGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n\n" +
-        "KALIBRÁLT RE-Y:    " + ray.toFixed(2) + " m/s²\n" +
-        "AKTUÁLIS SZŰRT Y:  " + ay.toFixed(2) + " m/s²\n" +
-        "RELATÍV ELTÉRÉS:   " + (ay - ray).toFixed(2) + " m/s²";
+        "SZÖGVÁLTOZÁS LÖKET: " + szogValtozas.toFixed(1) + "°\n" +
+        "DŐLÉS ELTÉRÉS:     " + dolesElteres.toFixed(1) + "°\n" +
+        "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
 }
 
 /* =========================================================================
