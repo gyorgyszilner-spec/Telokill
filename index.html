@@ -2,378 +2,137 @@
 <html lang="hu">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Fal-Kép Motor v8.0.0</title>
-
+<title>Fordulás elemző</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-body {
-    margin: 0;
-    font-family: sans-serif;
-    background: #111;
-    color: #fff;
-    overflow: hidden;
-    user-select: none;
-    -webkit-user-select: none;
-}
+body { font-family: Arial; margin: 20px; }
 
-.keret {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    width: 100vw;
-    gap: 12px;
-    z-index: 1;
-}
-
-#allapot {
-    font-size: 34px;
+#stateBox {
+    padding: 10px;
+    margin: 10px 0;
     font-weight: bold;
-    color: #00ffcc;
+    width: 200px;
     text-align: center;
-}
-
-#panel {
-    font-family: monospace;
-    white-space: pre;
-    background: #000;
-    padding: 15px;
     border-radius: 8px;
-    width: 85%;
-    max-width: 320px;
-    font-size: 13px;
-    z-index: 5;
 }
 
-#verzio { opacity: 0.7; }
-
-#inditas {
-    padding: 12px 24px;
-    font-size: 16px;
-    font-weight: bold;
-    background: #222;
-    border: 2px solid #00ffcc;
-    color: #fff;
-    border-radius: 6px;
-    cursor: pointer;
-    z-index: 5;
-}
-
-/* KEREK HÜVELYKUIJJ GOMBOK A KÉT OLDALON */
-.oldal-gomb {
-    position: absolute;
-    bottom: 15%;
-    width: 85px;
-    height: 85px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.07);
-    border: 3px solid rgba(0, 255, 204, 0.4);
-    color: rgba(200, 255, 240, 0.7);
-    font-weight: bold;
-    font-size: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10;
-    touch-action: none;
-    transition: background 0.1s, border-color 0.1s;
-}
-
-#gomb-bal { left: 20px; }
-#gomb-jobb { right: 20px; }
-
-.oldal-gomb:active {
-    background: rgba(0, 255, 204, 0.3);
-    border-color: #00ffcc;
-    color: #fff;
-    box-shadow: 0 0 15px #00ffcc;
-}
+.ALAP { background: #4caf50; color: white; }
+.BALRA_FORDUL { background: #f44336; color: white; }
+.JOBBRA_FORDUL { background: #2196f3; color: white; }
 </style>
 </head>
-
 <body>
 
-<!-- Érintőgombok a két szélen -->
-<div class="oldal-gomb" id="gomb-bal">BAL</div>
-<div class="oldal-gomb" id="gomb-jobb">JOBB</div>
+<h2>Fordulás elemzés</h2>
 
-<div class="keret">
-    <button id="inditas">Falhoz kalibrálás</button>
-    <div id="verzio">v8.0.0</div>
-    <div id="allapot">VÁRAKOZÁS</div>
-    <div id="panel">NYOMD A FALHOZ</div>
-</div>
+<input type="file" id="fileInput">
+
+<div id="stateBox" class="ALAP">ALAP</div>
+
+<input type="range" id="slider" min="0" value="0">
+
+<canvas id="chart"></canvas>
 
 <script>
-const VERZIÓ = "v8.0.0";
-let fut = false;
+let data = [];
+let currentState = "ALAP";
 
-// Nyers és szűrt adatok (V7.2.3)
-let ax = 0, ay = 0, az = 0;
-let rax = 0, ray = 0, raz = 0;
+const ctx = document.getElementById("chart").getContext("2d");
 
-// Állapotok (V7.2.3)
-let dontes = "SEMMI";
-let fuggoleges = "SEMMI";
-let fordulas = "SEMMI"; 
-
-/* =========================================================================
-   MOZGÁSI ÉS INTENZITÁS VÁLTOZÓK
-   ========================================================================= */
-let utolsoLepesIdo = 0;
-let lepesIdokozok = [];
-let lepesIntenzitások = []; 
-let utolsoGyorsulasZ = 0;
-let utolsoMozgasIdo = 0;
-let mozgásÁllapot = "STOP";
-let mozgásZárolva = false;
-let utolsoSzog = 0;
-
-// Gombok állapota
-let balGombLenyomva = false;
-let jobbGombLenyomva = false;
-
-/* =========================================================================
-   ENGEDÉLY ÉS KALIBRÁCIÓS INDÍTÁS
-   ========================================================================= */
-async function engedely() {
-    try {
-        if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) {
-            const r = await DeviceMotionEvent.requestPermission();
-            return r === "granted";
-        }
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-document.getElementById("inditas").onclick = async () => {
-    const ok = await engedely();
-    if (!ok) {
-        alert("Szenzor hozzáférés megtagadva!");
-        return;
-    }
-
-    document.getElementById("allapot").textContent = "KALIBRÁLÁS...";
-    window.addEventListener("devicemotion", szenzor);
-
-    setTimeout(() => {
-        rax = ax;
-        ray = ay;
-        raz = az;
-        fut = true;
-        document.getElementById("allapot").textContent = "ALAP";
-    }, 1500);
-};
-
-function szenzor(e) {
-    const a = e.accelerationIncludingGravity || {x:0, y:0, z:0};
-    
-    // 70/30-as gyári aluláteresztő szűrő (V7.2.3)
-    ax = ax * 0.7 + a.x * 0.3;
-    ay = ay * 0.7 + a.y * 0.3;
-    az = az * 0.7 + a.z * 0.3;
-
-    if (fut) feldolgoz();
-}
-
-/* =========================================================================
-   VALÓDI HOLTTÉR ÉS HISZTERÉZIS ÁLLAPONGÉP (V7.2.3)
-   ========================================================================= */
-function vizsgalAllapot(ertek, jelenlegiState, negNev, posNev, beKuszob, kiKuszob) {
-    if (jelenlegiState === "SEMMI") {
-        if (ertek > beKuszob) return posNev;
-        if (ertek < -beKuszob) return negNev;
-        return "SEMMI";
-    }
-    if (jelenlegiState === posNev) {
-        if (ertek < kiKuszob) return "SEMMI";
-        return posNev;
-    }
-    if (jelenlegiState === negNev) {
-        if (ertek > -kiKuszob) return "SEMMI";
-        return negNev;
-    }
-    return "SEMMI";
-}
-
-/* =========================================================================
-   KETTŐS LÉPÉSDETEKTOR
-   ========================================================================= */
-function detectLepes(jelenlegiDz, szogValtozas) {
-    const most = performance.now();
-    
-    const vanFüggőlegesRázkódás = Math.abs(jelenlegiDz) > 0.9 && Math.abs(utolsoGyorsulasZ) <= 0.9;
-    const vanDőléshullámTüske = Math.abs(szogValtozas) > 2.8;
-
-    if (vanFüggőlegesRázkódás || vanDőléshullámTüske) {
-        if (most - utolsoLepesIdo > 180) {
-            const idokoz = most - utolsoLepesIdo;
-            utolsoLepesIdo = most;
-            utolsoMozgasIdo = most;
-
-            lepesIdokozok.push(idokoz);
-            if (lepesIdokozok.length > 3) lepesIdokozok.shift();
-
-            const aktualisIntenzitas = Math.abs(jelenlegiDz) + (Math.abs(szogValtozas) * 0.4);
-            lepesIntenzitások.push(aktualisIntenzitas);
-            if (lepesIntenzitások.length > 3) lepesIntenzitások.shift();
-        }
-    }
-    utolsoGyorsulasZ = jelenlegiDz;
-}
-
-// === VÁGÁS: A SCRIPT ITT SZAKAD MEGSZAKÍTÁSRA ===
-/* =========================================================================
-   FŐ FELDOLGOZÓ LOGIKA ÉS RETESZELÉS
-   ========================================================================= */
-function feldolgoz() {
-    const most = performance.now();
-
-    // DŐLÉSSZÖG SZÁMÍTÁSA (V7.2.3)
-    const aktualisSzog = Math.atan2(ax, ay) * 180 / Math.PI;
-    const kalibraltSzog = Math.atan2(rax, ray) * 180 / Math.PI;
-    
-    let dolesElteres = aktualisSzog - kalibraltSzog;
-    if (dolesElteres > 180) dolesElteres -= 360;
-    if (dolesElteres < -180) dolesElteres += 360;
-
-    let szogValtozas = aktualisSzog - utolsoSzog;
-    if (szogValtozas > 180) szogValtozas -= 360;
-    if (szogValtozas < -180) szogValtozas += 360;
-    utolsoSzog = aktualisSzog;
-
-    const dz = az - raz;
-
-    // Lépések rögzítése
-    detectLepes(dz, szogValtozas);
-
-    // 1. RITMUS ÉS SEBESSÉG KIÉRTÉKELÉSE
-    let aktualisSebesseg = "STOP";
-    let atlagIntenzitas = 0;
-    let atlagIdokoz = 0;
-
-    if (most - utolsoMozgasIdo < 750 && lepesIdokozok.length > 0) {
-        atlagIdokoz = lepesIdokozok.reduce((a, b) => a + b, 0) / lepesIdokozok.length;
-        
-        if (lepesIntenzitások.length > 0) {
-            atlagIntenzitas = lepesIntenzitások.reduce((a, b) => a + b, 0) / lepesIntenzitások.length;
-        }
-
-        if (lepesIdokozok.length >= 2) {
-            const isFutam = atlagIdokoz < 310;
-            const isMagasTerd = atlagIntenzitas > 2.10; 
-
-            if (isFutam) {
-                aktualisSebesseg = isMagasTerd ? "MAGAS TÉRD FUTÁS" : "FUTÁS";
-            } else {
-                aktualisSebesseg = isMagasTerd ? "MAGAS TÉRD JÁRÁS" : "JÁRÁS";
+let chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [
+            {
+                label: "YawDelta",
+                data: [],
+                borderColor: "red",
+                yAxisID: "y"
+            },
+            {
+                label: "Intenzitas",
+                data: [],
+                borderColor: "blue",
+                yAxisID: "y1"
             }
-        }
-    } else {
-        lepesIdokozok = [];
-        lepesIntenzitások = [];
-    }
-
-    /* =========================================================================
-       ZÁROLÁSI LOGIKA ÉS REAKCIÓK (V7.2.3 RETESZ)
-       ========================================================================= */
-    if (mozgásZárolva) {
-        if (aktualisSebesseg === "STOP") {
-            mozgásZárolva = false;
-            mozgásÁllapot = "STOP";
-        } else {
-            mozgásÁllapot = aktualisSebesseg;
+        ]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: { type: 'linear', position: 'left' },
+            y1: { type: 'linear', position: 'right' }
         }
     }
+});
 
-    // 2. STATIKUS ÁLLAPOTOK ÉS BISTABIL FORDULÁS KAPCSOLÓ (v8.0.0)
-    if (!mozgásZárolva) {
-        
-        // Szigorú feltétel: Csak Alaphelyzetből (STOP és csend) lehet elindulni
-        let alapallapotbanVan = (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg === "STOP");
+// --- ÁLLAPOTGÉP (SZIGORÚ LOGIKA) ---
+function nextState(current, row) {
+    const dir = row.OUTPUT_TurnState;
 
-        if (fordulas === "SEMMI") {
-            if (alapallapotbanVan) {
-                // Nagy pofon (intenzív kezdeti lökés küszöb) -> Átvált balra vagy jobbra állapotba
-                if (szogValtozas > 3.0) {
-                    fordulas = "JOBBRA";
-                } else if (szogValtozas < -3.0) {
-                    fordulas = "BALRA";
-                }
-            }
-        } else {
-            // Kizárólagosság: Amíg el vagyunk fordulva, minden más mozgás le van zárva
-            dontes = "SEMMI";
-            fuggoleges = "SEMMI";
-            aktualisSebesseg = "STOP";
-
-            // Visszaállítás (Csak ha megérkezik a nagy ellentétes pofon)
-            // BALRA állapotból csak egy határozott JOBBRA rántás hoz vissza ALAP-ba
-            if (fordulas === "BALRA" && szogValtozas > 3.0) {
-                fordulas = "SEMMI";
-            } 
-            // JOBBRA állapotból csak egy határozott BALRA rántás hoz vissza ALAP-ba
-            else if (fordulas === "JOBBRA" && szogValtozas < -3.0) {
-                fordulas = "SEMMI";
-            }
-        }
-
-        // Ha nincs aktív elfordulás, a többi mozgás normálisan futhat tovább
-        if (fordulas === "SEMMI") {
-            dontes = vizsgalAllapot(dolesElteres, dontes, "JOBB", "BAL", 22, 10);
-            fuggoleges = vizsgalAllapot(dz, fuggoleges, "EMELÉS", "GUGGOLÁS", 3.2, 1.0);
-
-            if (dontes === "SEMMI" && fuggoleges === "SEMMI" && aktualisSebesseg !== "STOP") {
-                mozgásZárolva = true;
-                mozgásÁllapot = aktualisSebesseg;
-            }
-        }
+    if (current === "ALAP") {
+        if (dir === "BALRA") return "BALRA_FORDUL";
+        if (dir === "JOBBRA") return "JOBBRA_FORDUL";
+        return "ALAP";
     }
 
-    // 3. MEGJELENÍTÉS ÉS HIERARCHIA
-    let kijelzendoAllapot = "ALAP";
-    
-    if (fordulas !== "SEMMI") {
-        kijelzendoAllapot = "FORDULÁS " + fordulas;
-    } else if (mozgásZárolva) {
-        kijelzendoAllapot = mozgásÁllapot;
-    } else if (fuggoleges !== "SEMMI") {
-        kijelzendoAllapot = fuggoleges;
-    } else if (dontes !== "SEMMI") {
-        kijelzendoAllapot = "DÖNTÉS " + dontes;
-    }
+    if (current === "BALRA_FORDUL") return "ALAP";
+    if (current === "JOBBRA_FORDUL") return "ALAP";
 
-    document.getElementById("allapot").textContent = kijelzendoAllapot;
-
-    // Telemetria kiírása
-    document.getElementById("panel").textContent =
-        "VERZIÓ: " + VERZIÓ + "\n\n" +
-        "DÖNTÉS STÁTUSZ: " + dontes + "\n" +
-        "FÜGGŐLEGES STÁTUSZ: " + fuggoleges + "\n" +
-        "MOZGÁS STÁTUSZ: " + mozgásÁllapot + "\n" +
-        "FORDULÁS STÁTUSZ: " + fordulas + "\n\n" +
-        "BAL GOMB: " + (balGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n" +
-        "JOBB GOMB: " + (jobbGombLenyomva ? "LENYOMVA" : "FELENGEDVE") + "\n\n" +
-        "SZÖGVÁLTOZÁS LÖKET: " + szogValtozas.toFixed(1) + "°\n" +
-        "DŐLÉS ELTÉRÉS:     " + dolesElteres.toFixed(1) + "°\n" +
-        "DZ (gyorsulás delta): " + dz.toFixed(2) + " m/s²";
+    return "ALAP";
 }
 
-/* =========================================================================
-   HÜVELYKUIJJ GOMBOK ÉRINTÉS-KEZELÉSE (ZÁRÓ BLOKK)
-   ========================================================================= */
-const bGomb = document.getElementById("gomb-bal");
-const jGomb = document.getElementById("gomb-jobb");
+function updateUI(index) {
+    const row = data[index];
 
-bGomb.addEventListener("touchstart", (e) => { e.preventDefault(); balGombLenyomva = true; });
-bGomb.addEventListener("touchend", (e) => { e.preventDefault(); balGombLenyomva = false; });
+    currentState = nextState(currentState, row);
 
-jGomb.addEventListener("touchstart", (e) => { e.preventDefault(); jobbGombLenyomva = true; });
-jGomb.addEventListener("touchend", (e) => { e.preventDefault(); jobbGombLenyomva = false; });
+    const box = document.getElementById("stateBox");
+    box.className = currentState;
+    box.innerText = currentState;
+
+    // highlight chart point
+    chart.setActiveElements([
+        { datasetIndex: 0, index: index },
+        { datasetIndex: 1, index: index }
+    ]);
+}
+
+// --- CSV PARSER ---
+function parseCSV(text) {
+    const lines = text.trim().split("\n");
+    const header = lines[0].split(",");
+
+    data = lines.slice(1).map(l => {
+        const cols = l.split(",");
+        let obj = {};
+        header.forEach((h, i) => obj[h.trim()] = cols[i]);
+        return obj;
+    });
+
+    chart.data.labels = data.map(d => d.Time_ms);
+    chart.data.datasets[0].data = data.map(d => parseFloat(d.Calc_YawDelta));
+    chart.data.datasets[1].data = data.map(d => parseFloat(d.Calc_Intenzitas));
+
+    chart.update();
+
+    document.getElementById("slider").max = data.length - 1;
+}
+
+// --- FILE LOAD ---
+document.getElementById("fileInput").addEventListener("change", e => {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+
+    reader.onload = ev => parseCSV(ev.target.result);
+    reader.readAsText(file);
+});
+
+// --- SLIDER ---
+document.getElementById("slider").addEventListener("input", e => {
+    updateUI(parseInt(e.target.value));
+});
 </script>
 
 </body>
