@@ -2,49 +2,20 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Vertical Motion Controller</title>
+<title>Digital Motion Controller</title>
 <style>
-  body { margin:0; overflow:hidden; background:#222; }
-
-  #ground {
-    position:absolute;
-    bottom:0;
-    left:0;
-    width:100vw;
-    height:40vh;
-    background:#444;
+  body { margin:0; background:#111; color:#0f0; font-family:monospace; }
+  #state {
+    margin-top:40vh;
+    text-align:center;
+    font-size:32px;
   }
-
-  #player {
-    position:absolute;
-    width:50px;
-    height:50px;
-    background:#0f0;
-    left:50vw;
-    transform:translateX(-50%);
-  }
-
-  #hud {
-    position:fixed;
-    top:0;
-    left:0;
-    width:100%;
-    background:#0007;
-    color:#0f0;
-    font-family:monospace;
-    padding:5px 10px;
-    font-size:12px;
-    pointer-events:none;
-  }
-
   #calibBtn {
     position:fixed;
     top:5px;
     right:5px;
-    z-index:10;
     padding:6px 10px;
-    font-size:12px;
-    font-family:monospace;
+    font-size:14px;
     background:#333;
     color:#0f0;
     border:1px solid #0f0;
@@ -54,22 +25,15 @@
 </head>
 <body>
 
-<div id="ground"></div>
-<div id="player"></div>
-<div id="hud">Nyomd meg a CALIBRATE gombot.</div>
+<div id="state">Nyomd meg a CALIBRATE gombot.</div>
 <button id="calibBtn">CALIBRATE</button>
 
 <script>
-let player = document.getElementById("player");
-let hud = document.getElementById("hud");
+let stateDiv = document.getElementById("state");
 let calibBtn = document.getElementById("calibBtn");
 
-// pozíciók
-let groundY = window.innerHeight * 0.6;
-let posY = groundY;
-
-// szenzorok
-let pitch = 0, roll = 0, yaw = 0;
+// raw sensor
+let pitch = 0;
 let accelZ = 0;
 
 // baseline + noise
@@ -80,7 +44,7 @@ let calibrated = false;
 let calibrating = false;
 let calibSamples = [];
 
-// járás/futás detektálás
+// step detection
 let zHistory = [];
 
 // --- SENSOR INPUT ---
@@ -103,10 +67,10 @@ window.addEventListener("devicemotion", (e) => {
 
 // --- CALIBRATION ---
 function startCalibration() {
-  calibSamples = [];
   calibrating = true;
   calibrated = false;
-  hud.innerText = "Kalibráció: tartsd stabilan (5 mp)…";
+  calibSamples = [];
+  stateDiv.innerText = "Kalibráció folyamatban…";
   setTimeout(finishCalibration, 5000);
 }
 
@@ -114,7 +78,7 @@ function finishCalibration() {
   calibrating = false;
 
   if (calibSamples.length < 10) {
-    hud.innerText = "Kalibráció sikertelen.";
+    stateDiv.innerText = "Kalibráció sikertelen.";
     return;
   }
 
@@ -137,32 +101,27 @@ function finishCalibration() {
   noise.accelZ = Math.sqrt(varZ / calibSamples.length);
 
   calibrated = true;
-  posY = groundY; // középre ugrás
-  player.style.top = posY + "px";
-
-  hud.innerText = "Kalibrálva.";
+  stateDiv.innerText = "alapállapot";
 }
 
 // --- MOTION DETECTION ---
-function detectMotion() {
+function detectState() {
   if (!calibrated || calibrating) return;
 
   // --- GUGGOLÁS ---
-  const crouch = pitch > baseline.pitch + (noise.pitch + 15);
-
-  if (crouch) {
-    posY = groundY + 40; // lesüllyed
+  if (pitch > baseline.pitch + (noise.pitch + 15)) {
+    stateDiv.innerText = "leguggol";
     return;
   }
 
   // --- UGRÁS ---
   const zDelta = accelZ - baseline.accelZ;
   if (Math.abs(zDelta) > noise.accelZ * 4) {
-    posY = groundY - 50; // felugrik
+    stateDiv.innerText = "ugrás";
     return;
   }
 
-  // --- JÁRÁS / FUTÁS ---
+  // --- SÉTA / FUTÁS ---
   let peaks = 0;
   for (let i = 1; i < zHistory.length - 1; i++) {
     const z0 = zHistory[i-1], z1 = zHistory[i], z2 = zHistory[i+1];
@@ -173,24 +132,22 @@ function detectMotion() {
   const freq = peaks / 1.0;
 
   if (freq > 1 && freq < 2) {
-    posY = groundY - 20; // járás ritmus
-  } else if (freq >= 2 && freq < 3.5) {
-    posY = groundY - 35; // futás ritmus
-  } else {
-    posY = groundY; // alapállapot
+    stateDiv.innerText = "sétál";
+    return;
   }
+
+  if (freq >= 2 && freq < 3.5) {
+    stateDiv.innerText = "fut";
+    return;
+  }
+
+  // --- ALAPÁLLAPOT ---
+  stateDiv.innerText = "alapállapot";
 }
 
-// --- GAME LOOP ---
+// --- LOOP ---
 function loop() {
-  detectMotion();
-
-  player.style.top = posY + "px";
-
-  hud.innerText =
-    "pitch:" + pitch.toFixed(1) +
-    " | accelZ:" + accelZ.toFixed(2);
-
+  detectState();
   requestAnimationFrame(loop);
 }
 
