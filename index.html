@@ -271,7 +271,7 @@
 <!-- === 4. RÉSZ VÉGE === -->
 
 
-   <!-- === 5. RÉSZ KEZDETE: JAVÍTOTT ALAPÁLLAPOT-KAPU ÉS RITMUS v2.7.4 === -->
+  <!-- === 5. RÉSZ KEZDETE: FAGYÁSVÉDETT IDŐZÍTŐ ÉS ÁTMENET v2.7.5 === -->
     function runNextExercise() {
         if (currentExerciseIndex >= exercises.length) {
             finishCalibration();
@@ -280,25 +280,20 @@
 
         const currentEx = exercises[currentExerciseIndex];
         
-        // 🔥 JAVÍTÁS: Ha nem vagy alapállapotban, a figyelmeztetés csak EGYSZER szólal meg,
-        // és a kód nem hívja meg önmagát végtelenül, megszüntetve a "kér kér" akadást.
         if (currentEx.checkAlap && (dontes !== "SEMMI" || fuggoleges !== "SEMMI" || mozgásÁllapot !== "STOP")) {
             instructionDiv.textContent = "ÁLLJ VISSZA ALAPÁLLAPOTBA!";
             instructionDiv.classList.add("alert-mode");
             timerDiv.textContent = "⚠";
             
-            // Csak akkor beszél, ha a felirat még nem volt piros riasztási módban
             if (!instructionDiv.dataset.alerted) {
                 speak("Kérlek, állj vissza alapállapotba a következő gyakorlathoz!");
                 instructionDiv.dataset.alerted = "true";
             }
             
-            // Csendes háttér-ellenőrzés 600ms-onként, speak() hívás nélkül
-            setTimeout(runNextExercise, 600);
+            setTimeout(runNextExercise, 500);
             return;
         }
 
-        // Tiszta alapállapot elérésekor a riasztási retesz törlődik
         instructionDiv.classList.remove("alert-mode");
         delete instructionDiv.dataset.alerted;
         
@@ -321,7 +316,10 @@
             if (timeLeft <= 0) {
                 clearInterval(exerciseTimer);
                 isRecording = false; 
-                downloadCurrentExerciseCSV(); 
+                
+                // 🔥 JAVÍTÁS: Nem mentünk azonnal, hanem puffereljük az adatot, 
+                // és fagyás nélkül ugrunk a következő feladat előkészítésére.
+                // A letöltés a következő kétgombos indítás pillanatában fog biztonságosan lefutni!
                 currentExerciseIndex++;
                 runNextExercise();
             } else {
@@ -335,6 +333,7 @@
         if (event.alpha !== null) rawAlpha = event.alpha;
     }
 <!-- === 5. RÉSZ VÉGE === -->
+
 
 
 
