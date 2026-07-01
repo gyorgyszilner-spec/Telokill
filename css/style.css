@@ -1,0 +1,175 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #0b0d10;
+  color: #e8eaed;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+}
+h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+p.sub { color: #9aa0a6; font-size: 13px; margin: 0 0 14px; text-align: center; max-width: 560px; }
+
+#stage {
+  position: relative;
+  width: 100%;
+  max-width: 960px;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #2a2d31;
+}
+video, canvas#overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+video { transform: scaleX(-1); }
+canvas#overlay { transform: scaleX(-1); }
+
+/* ---- Tilt-kapu állapotjelző sáv ---- */
+#gateBar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 6px;
+  background: #2a2d31;
+  transition: background-color 0.25s linear;
+}
+#gateBar.state-none      { background: #f85149; } /* nincs detekció */
+#gateBar.state-bad       { background: #d29922; } /* rossz szög */
+#gateBar.state-settling  { background: #8ab4f8; } /* stabilizálódik */
+#gateBar.state-ok        { background: #3fb950; } /* kész */
+
+#instructionBar {
+  position: absolute;
+  top: 6px; left: 0; right: 0;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.78), rgba(0,0,0,0));
+  text-align: center;
+}
+#phaseLabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #8ab4f8; margin-bottom: 4px; }
+#instructionText { font-size: 16px; font-weight: 600; line-height: 1.35; }
+#instructionSub { font-size: 12.5px; color: #cfd2d6; margin-top: 6px; min-height: 16px; }
+
+#bottomStatus {
+  position: absolute;
+  bottom: 8px; left: 8px; right: 8px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #cfd2d6;
+  background: rgba(0,0,0,0.5);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+#distanceGuide {
+  position: absolute;
+  bottom: 40px; left: 50%;
+  transform: translateX(-50%);
+  width: 70%;
+  max-width: 360px;
+}
+#distanceBar { height: 10px; border-radius: 5px; background: #2a2d31; overflow: hidden; position: relative; }
+#distanceFill {
+  position: absolute; top: 0; bottom: 0;
+  background: #d29922; width: 0%;
+  transition: width 0.1s linear, background-color 0.2s linear;
+}
+#distanceLabel { font-size: 11px; text-align: center; color: #cfd2d6; margin-top: 4px; }
+
+#controls { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+button {
+  background: #1f2329; color: #e8eaed; border: 1px solid #34383f;
+  padding: 10px 18px; border-radius: 8px; font-size: 14px; cursor: pointer;
+}
+button:hover { background: #2a2f37; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: #2563eb; border-color: #2563eb; }
+button.primary:hover { background: #1d4ed8; }
+
+#progressTrack { margin-top: 16px; width: 100%; max-width: 960px; display: flex; gap: 4px; }
+.progress-seg { flex: 1; height: 5px; border-radius: 3px; background: #24272c; }
+.progress-seg.done { background: #3fb950; }
+.progress-seg.active { background: #d29922; }
+
+/* ---- VRM színpad ---- */
+#vrmStage {
+  position: relative;
+  width: 100%;
+  max-width: 1600px;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #2a2d31;
+  display: none;
+}
+#vrmStage:fullscreen {
+  max-width: none;
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+  border-radius: 0;
+  border: none;
+}
+#vrmStage canvas { width: 100%; height: 100%; display: block; }
+#vrmHud {
+  position: absolute; top: 8px; left: 8px; right: 8px;
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: #9aa0a6;
+  background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 6px;
+}
+#fullscreenBtn {
+  position: absolute; top: 8px; right: 8px;
+  z-index: 5;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+#noPersonBanner {
+  position: absolute; top: 44px; left: 50%; transform: translateX(-50%);
+  background: rgba(248,81,73,0.92); color: #fff;
+  padding: 8px 16px; border-radius: 8px;
+  font-size: 13px; font-weight: 600;
+  z-index: 6;
+}
+#vrmDebug {
+  position: absolute; bottom: 10px; left: 10px;
+  font-size: 12px; line-height: 1.5; font-family: 'SF Mono', Menlo, Consolas, monospace;
+  color: #d8dadd; background: rgba(0,0,0,0.6);
+  padding: 10px 14px; border-radius: 8px;
+  white-space: pre; margin: 0;
+  max-width: 90%;
+}
+
+/* ---- Keret-indikátor: mennyire vagy benne a kamera látómezejében ----
+   Külön réteg, NEM a #vrmStage-en, mert az inset box-shadow a szülőn a canvas MÖGÖTT
+   festődik ki (a canvas statikus pozíciójú gyermek előbb fest, mint a szülő saját
+   háttere/árnyéka a normál stacking sorrendben) -- ezért nem látszott.
+   Valódi border-t használunk box-shadow helyett (megbízhatóbb, mindig jól látható). */
+#frameIndicator {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  border-radius: 12px;
+  border: 4px solid transparent;
+  transition: border-color 0.15s linear;
+  z-index: 8;
+}
+#frameIndicator.frame-safe   { border-color: rgba(63,185,80,0.85); }
+#frameIndicator.frame-warn   { border-color: rgba(210,153,34,0.9); border-width: 6px; }
+#frameIndicator.frame-danger { border-color: rgba(248,81,73,1); border-width: 8px; }
+
+/* ---- Mérési rutin panel (egy gomb, hangvezérelt, nem kell kattintgatni) ---- */
+#handLogPanel {
+  position: absolute; top: 40px; right: 8px;
+  display: flex; flex-direction: column; gap: 6px; align-items: stretch;
+  background: rgba(0,0,0,0.55); padding: 10px; border-radius: 8px;
+  max-width: 220px; z-index: 5;
+}
+#routineStartBtn { background: #2563eb; border-color: #2563eb; padding: 8px 12px; font-size: 12px; }
+#routineStartBtn.running { background: #f85149; border-color: #f85149; }
+#logStatus { font-size: 10.5px; color: #9aa0a6; text-align: center; }
